@@ -1,0 +1,755 @@
+﻿'use strict';
+
+/* ---------- Konstanta ---------- */
+const API = 'https://api.modrinth.com/v2';
+const KEY = 'reonzy-mp-maker-v1';
+const TYPES = {
+  mod:          { label: 'Mod',          plural: 'mod',          folder: 'mods',          path: 'mod' },
+  resourcepack: { label: 'Texture pack', plural: 'texture pack', folder: 'resourcepacks', path: 'resourcepack' },
+  shader:       { label: 'Shader',       plural: 'shader',       folder: 'shaderpacks',   path: 'shader' }
+};
+const LOADERS = {
+  fabric:   { label: 'Fabric',   key: 'fabric-loader', cats: ['fabric'] },
+  quilt:    { label: 'Quilt',    key: 'quilt-loader',  cats: ['quilt', 'fabric'] },
+  forge:    { label: 'Forge',    key: 'forge',         cats: ['forge'] },
+  neoforge: { label: 'NeoForge', key: 'neoforge',      cats: ['neoforge'] }
+};
+const RANK = { release: 0, beta: 1, alpha: 2 };
+const TLABEL = { release: 'Release', beta: 'Beta', alpha: 'Alpha' };
+const TCLASS = { release: '', beta: 'warn', alpha: 'bad' };
+
+/* ---------- Helper ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v;
+    else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v === true) e.setAttribute(k, '');
+    else e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) {
+    if (c == null || c === false) continue;
+    e.append(c.nodeType ? c : document.createTextNode(c));
+  }
+  return e;
+}
+const fmtNum = n => new Intl.NumberFormat('id-ID', { notation: 'compact' }).format(n || 0);
+const fmtDate = d => new Date(d).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
+const slugify = s => (s || 'modpack').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'modpack';
+
+let noticeTimer;
+function toast(msg, kind = '') {
+  const n = $('#notice');
+  n.textContent = msg;
+  n.className = 'show ' + kind;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { n.className = ''; }, 5200);
+}
+
+const cache = new Map();
+async function getJSON(url) {
+  if (cache.has(url)) return cache.get(url);
+  const p = fetch(url).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+  cache.set(url, p);
+  try { return await p; } catch (e) { cache.delete(url); throw e; }
+}
+
+async function pool(arr, n, fn) {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, arr.length) }, async () => {
+    while (i < arr.length) { const x = arr[i++]; await fn(x); }
+  }));
+}
+
+function cmpVer(a, b) {
+  const pa = a.split(/[.\-+]/), pb = b.split(/[.\-+]/);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = parseInt(pa[i], 10), y = parseInt(pb[i], 10);
+    if (isNaN(x) || isNaN(y)) {
+      if (pa[i] === pb[i]) continue;
+      return (pa[i] || '') < (pb[i] || '') ? -1 : 1;
+    }
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+/* ---------- State ---------- */
+const S = {
+  name: 'Modpack Saya', packVer: '1.0.0',
+  mc: '', loader: 'fabric', loaderVer: '',
+  pref: 'auto', autoDeps: true, showSnap: false,
+  mcList: [], loaderList: null,
+  items: [],
+  tab: 'mod', query: '', results: [], total: 0, offset: 0, searching: false, searchErr: false,
+  gen: 0
+};
+let lvGen = 0, searchGen = 0;
+
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({
+      name: S.name, packVer: S.packVer, mc: S.mc, loader: S.loader, loaderVer: S.loaderVer,
+      pref: S.pref, autoDeps: S.autoDeps, showSnap: S.showSnap,
+      items: S.items.map(i => ({ id: i.id, vid: i.manual ? i.vid : null, manual: !!i.manual, auto: !!i.auto, requiredBy: i.requiredBy || null }))
+    }));
+  } catch (e) { /* penyimpanan tidak tersedia */ }
+}
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
+}
+
+/* ---------- Versi Minecraft & loader ---------- */
+const mcOptions = () => S.mcList.filter(v => S.showSnap || v.version_type === 'release');
+
+async function fetchLoaderVersions(loader, mc) {
+  if (loader === 'fabric') {
+    const d = await getJSON('https://meta.fabricmc.net/v2/versions/loader');
+    return d.map(x => ({ v: x.version, stable: !!x.stable }));
+  }
+  if (loader === 'quilt') {
+    const d = await getJSON('https://meta.quiltmc.org/v3/versions/loader');
+    return d.map(x => ({ v: x.version, stable: !/-/.test(x.version) }));
+  }
+  if (loader === 'forge') {
+    try {
+      const d = await getJSON('https://bmclapi2.bangbang93.com/forge/minecraft/' + mc);
+      if (Array.isArray(d) && d.length) return d.map(x => ({ v: x.version, stable: true }));
+    } catch (e) { /* coba sumber cadangan */ }
+    const p = await getJSON('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json');
+    const map = new Map();
+    for (const [k, v] of Object.entries(p.promos || {})) {
+      if (k === mc + '-latest' && !map.has(v)) map.set(v, false);
+      if (k === mc + '-recommended') map.set(v, true);
+    }
+    return [...map].map(([v, stable]) => ({ v, stable }));
+  }
+  if (loader === 'neoforge') {
+    try {
+      const d = await getJSON('https://bmclapi2.bangbang93.com/neoforge/list/' + mc);
+      const out = (Array.isArray(d) ? d : []).map(x => {
+        const v = String(x.version || x.rawVersion || '').replace(/^neoforge-/, '');
+        return { v, stable: !/-(beta|alpha|rc)/i.test(v) };
+      }).filter(x => x.v);
+      if (out.length) return out;
+    } catch (e) { /* coba sumber cadangan */ }
+    const m = mc.match(/^1\.(\d+)(?:\.(\d+))?/);
+    if (!m) return [];
+    const prefix = m[1] + '.' + (m[2] || 0) + '.';
+    const d = await getJSON('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
+    return (d.versions || []).filter(v => v.startsWith(prefix)).map(v => ({ v, stable: !/-/.test(v) }));
+  }
+  return [];
+}
+
+async function refreshLoader() {
+  const my = ++lvGen;
+  S.loaderList = null;
+  renderLoader();
+  let list = [], failed = false;
+  try { list = await fetchLoaderVersions(S.loader, S.mc); } catch (e) { failed = true; }
+  if (my !== lvGen) return;
+  list.sort((a, b) => cmpVer(b.v, a.v));
+  S.loaderList = list;
+  S.loaderFailed = failed;
+  if (!list.some(x => x.v === S.loaderVer) && list.length) {
+    const st = list.find(x => x.stable) || list[0];
+    S.loaderVer = st.v;
+  } else if (!list.length) {
+    if (failed) { /* biarkan isian manual */ } else S.loaderVer = '';
+  }
+  renderLoader();
+  save();
+}
+
+/* ---------- Versi mod ---------- */
+function isMatch(item, v) {
+  if (!v.game_versions.includes(S.mc)) return false;
+  if (item.type === 'mod') return v.loaders.some(l => LOADERS[S.loader].cats.includes(l));
+  return true;
+}
+function sortVersions(vs) {
+  return vs.slice().sort((a, b) =>
+    (Number(b.matches) - Number(a.matches)) ||
+    (S.pref === 'auto' ? RANK[a.type] - RANK[b.type] : 0) ||
+    (new Date(b.date) - new Date(a.date)));
+}
+async function loadVersions(item, all) {
+  const q = new URLSearchParams({ include_changelog: 'false' });
+  if (!all) {
+    q.set('game_versions', JSON.stringify([S.mc]));
+    if (item.type === 'mod') q.set('loaders', JSON.stringify(LOADERS[S.loader].cats));
+  }
+  const raw = await getJSON(API + '/project/' + item.id + '/version?' + q);
+  return raw.map(v => ({
+    id: v.id, name: v.name, number: v.version_number, type: v.version_type, date: v.date_published,
+    gv: v.game_versions, loaders: v.loaders, files: v.files, deps: v.dependencies || [],
+    matches: isMatch(item, v)
+  }));
+}
+
+function makeItem(p) {
+  return {
+    id: p.project_id || p.id, slug: p.slug, title: p.title, icon: p.icon_url,
+    type: p.project_type, client: p.client_side, server: p.server_side,
+    versions: [], vid: null, manual: false, auto: false, requiredBy: null,
+    status: 'loading', allLoaded: false
+  };
+}
+const selVersion = item => item.versions.find(v => v.id === item.vid);
+
+async function resolveItem(item, gen) {
+  item.status = 'loading';
+  renderPack();
+  try {
+    let list = sortVersions(await loadVersions(item, false));
+    if (gen !== undefined && gen !== S.gen) return;
+    item.allLoaded = false;
+    let keep = null;
+    if (item.manual && item.vid) {
+      keep = list.find(v => v.id === item.vid);
+      if (!keep) {
+        const all = sortVersions(await loadVersions(item, true));
+        if (gen !== undefined && gen !== S.gen) return;
+        keep = all.find(v => v.id === item.vid);
+        if (keep) { list = all; item.allLoaded = true; }
+      }
+    }
+    item.versions = list;
+    if (!keep) item.manual = false;
+    const chosen = keep || list.find(v => v.matches);
+    item.vid = chosen ? chosen.id : null;
+    item.status = chosen ? 'ready' : 'none';
+    if (chosen) await addDeps(item, chosen, gen);
+  } catch (e) {
+    item.status = 'error';
+  }
+  renderPack();
+  save();
+}
+
+async function addDeps(item, v, gen) {
+  if (!S.autoDeps) return;
+  for (const d of v.deps) {
+    if (d.dependency_type !== 'required' || !d.project_id) continue;
+    if (S.items.some(i => i.id === d.project_id)) continue;
+    try {
+      const p = await getJSON(API + '/project/' + d.project_id);
+      if (gen !== undefined && gen !== S.gen) return;
+      if (!TYPES[p.project_type] || S.items.some(i => i.id === p.id)) continue;
+      const dep = makeItem(p);
+      dep.auto = true;
+      dep.requiredBy = item.title;
+      S.items.push(dep);
+      renderPack();
+      resolveItem(dep, gen);
+    } catch (e) { /* lewati dependensi yang gagal dimuat */ }
+  }
+}
+
+function addItem(hit) {
+  const id = hit.project_id;
+  if (S.items.some(i => i.id === id)) return;
+  const it = makeItem(hit);
+  S.items.push(it);
+  renderPack();
+  renderResults();
+  resolveItem(it, S.gen);
+  save();
+}
+function removeItem(item) {
+  S.items = S.items.filter(i => i !== item);
+  renderPack(); renderResults(); save();
+}
+
+async function onConfigChange() {
+  const g = ++S.gen;
+  save();
+  runSearch(true);
+  await pool(S.items.slice(), 6, i => resolveItem(i, g));
+}
+
+/* ---------- Pencarian ---------- */
+async function runSearch(reset) {
+  const my = ++searchGen;
+  if (reset) { S.offset = 0; S.results = []; S.total = 0; }
+  if (!S.mc) { renderResults(); return; }
+  S.searching = true; S.searchErr = false;
+  renderResults();
+  try {
+    const f = [['project_type:' + S.tab], ['versions:' + S.mc]];
+    if (S.tab === 'mod') f.push(LOADERS[S.loader].cats.map(c => 'categories:' + c));
+    const q = new URLSearchParams({
+      query: S.query, facets: JSON.stringify(f), limit: '20',
+      offset: String(S.offset), index: S.query ? 'relevance' : 'downloads'
+    });
+    const d = await getJSON(API + '/search?' + q);
+    if (my !== searchGen) return;
+    S.results = S.results.concat(d.hits);
+    S.total = d.total_hits;
+    S.offset = S.results.length;
+  } catch (e) {
+    if (my !== searchGen) return;
+    S.searchErr = true;
+  }
+  S.searching = false;
+  renderResults();
+}
+
+/* ---------- Render: pengaturan ---------- */
+function renderConfig() {
+  const sel = $('#mc');
+  sel.replaceChildren(...mcOptions().map(v =>
+    el('option', { value: v.version, text: v.version + (v.version_type !== 'release' ? ' (' + v.version_type + ')' : '') })));
+  sel.value = S.mc;
+  $('#snap').checked = S.showSnap;
+  $('#name').value = S.name;
+  $('#packVer').value = S.packVer;
+  $('#pref').value = S.pref;
+  $('#deps').checked = S.autoDeps;
+  document.querySelectorAll('#loaders input').forEach(r => { r.checked = r.value === S.loader; });
+  renderLoaderHint();
+}
+function renderLoaderHint() {
+  $('#loaderHint').textContent = S.loader === 'quilt'
+    ? 'Quilt juga bisa menjalankan mod Fabric, jadi keduanya ikut dicari.' : '';
+}
+function renderLoader() {
+  const sel = $('#lv'), man = $('#lvManual'), hint = $('#lvHint');
+  hint.className = 'hint';
+  if (S.loaderList === null) {
+    sel.replaceChildren(el('option', { text: 'Memuat…' }));
+    sel.disabled = true; sel.hidden = false; man.hidden = true; hint.textContent = '';
+    return;
+  }
+  sel.disabled = false;
+  if (!S.loaderList.length) {
+    sel.hidden = true; man.hidden = false; man.value = S.loaderVer;
+    hint.className = 'hint bad';
+    hint.textContent = S.loaderFailed
+      ? 'Daftar versi loader tidak bisa dimuat. Ketik versinya sendiri.'
+      : 'Belum ada ' + LOADERS[S.loader].label + ' untuk Minecraft ' + S.mc + '. Pilih versi Minecraft atau loader lain.';
+    return;
+  }
+  sel.hidden = false; man.hidden = true;
+  sel.replaceChildren(...S.loaderList.slice(0, 150).map(x =>
+    el('option', { value: x.v, text: x.v + (x.stable ? '' : ' (beta)') })));
+  if (!S.loaderList.slice(0, 150).some(x => x.v === S.loaderVer))
+    sel.append(el('option', { value: S.loaderVer, text: S.loaderVer }));
+  sel.value = S.loaderVer;
+  hint.textContent = 'Versi stabil terbaru dipilih otomatis.';
+}
+
+/* ---------- Render: hasil pencarian ---------- */
+function icon(url, title, small) {
+  const cls = 'ico' + (small ? ' sm' : '');
+  const letter = (title || '?').trim().charAt(0).toUpperCase();
+  if (!url) return el('div', { class: cls, text: letter });
+  const img = el('img', { class: cls, src: url, alt: '', loading: 'lazy', width: small ? 36 : 52, height: small ? 36 : 52 });
+  img.addEventListener('error', () => img.replaceWith(el('div', { class: cls, text: letter })));
+  return img;
+}
+function renderResults() {
+  const ul = $('#results'), info = $('#resInfo'), more = $('#more');
+  ul.replaceChildren();
+  more.hidden = true;
+  const t = TYPES[S.tab];
+  $('#tabHint').textContent = S.tab === 'shader'
+    ? 'Shader butuh Iris atau OptiFine di launcher. Iris bisa ditambahkan dari tab Mod.' : '';
+  if (!S.mc) { info.textContent = 'Pilih versi Minecraft dulu.'; return; }
+  if (S.searchErr) {
+    info.textContent = '';
+    ul.append(el('li', { class: 'empty' }, 'Gagal menghubungi Modrinth. Periksa koneksi internet, lalu ',
+      el('button', { class: 'btn small', onclick: () => runSearch(S.results.length === 0), text: 'coba lagi' })));
+    return;
+  }
+  if (S.searching && !S.results.length) {
+    info.textContent = 'Mencari…';
+    for (let i = 0; i < 6; i++) ul.append(el('li', { class: 'skel' }));
+    return;
+  }
+  const scope = 'Minecraft ' + S.mc + (S.tab === 'mod' ? ' dengan ' + LOADERS[S.loader].label : '');
+  if (!S.results.length) {
+    info.textContent = '';
+    ul.append(el('li', { class: 'empty', text: 'Tidak ada ' + t.plural + (S.query ? ' dengan kata "' + S.query + '"' : '') + ' untuk ' + scope + '.' }));
+    return;
+  }
+  info.textContent = S.total.toLocaleString('id-ID') + ' ' + t.plural + ' tersedia untuk ' + scope + '.';
+  for (const h of S.results) {
+    const inPack = S.items.some(i => i.id === h.project_id);
+    ul.append(el('li', { class: 'card' + (inPack ? ' in' : '') },
+      icon(h.icon_url, h.title),
+      el('div', {},
+        el('h3', {}, h.title, el('small', { text: 'oleh ' + h.author })),
+        el('p', { text: h.description }),
+        el('div', { class: 'meta' },
+          el('span', { text: fmtNum(h.downloads) + ' unduhan' }),
+          h.latest_version ? el('span', { text: 'terbaru ' + h.latest_version }) : null,
+          el('a', { href: 'https://modrinth.com/' + t.path + '/' + h.slug, target: '_blank', rel: 'noopener', text: 'Lihat di Modrinth' }))),
+      el('button', { class: 'btn add', disabled: inPack, onclick: () => addItem(h), text: inPack ? 'Sudah ada' : 'Tambah' })));
+  }
+  more.hidden = S.results.length >= S.total;
+  more.disabled = S.searching;
+}
+
+/* ---------- Render: isi pack ---------- */
+function packState(item) {
+  if (item.status === 'loading') return { cls: '', text: '' };
+  if (item.status === 'none' || item.status === 'error') return { cls: 'bad' };
+  const v = selVersion(item);
+  if (!v || !v.matches) return { cls: 'bad' };
+  return { cls: v.type === 'release' ? 'ok' : 'warn' };
+}
+function packRow(item) {
+  const st = packState(item);
+  const v = selVersion(item);
+  const body = el('div', {}, el('b', { text: item.title }));
+  const line = el('div', { class: 'pline' });
+  const scope = S.mc + (item.type === 'mod' ? ' / ' + LOADERS[S.loader].label : '');
+
+  if (item.status === 'loading') {
+    line.append(el('span', { class: 'chip', text: 'Mencari versi…' }));
+  } else if (item.status === 'none') {
+    line.append(el('span', { class: 'chip bad', text: 'Tidak ada versi untuk ' + scope }),
+      el('button', { class: 'btn small', onclick: () => openVersions(item), text: 'Lihat semua versi' }));
+  } else if (item.status === 'error') {
+    line.append(el('span', { class: 'chip bad', text: 'Gagal memuat versi' }),
+      el('button', { class: 'btn small', onclick: () => resolveItem(item, S.gen), text: 'Coba lagi' }));
+  } else if (v) {
+    line.append(
+      el('span', { text: v.number }),
+      el('span', { class: 'chip ' + TCLASS[v.type], text: TLABEL[v.type] }),
+      v.matches ? el('span', { class: 'chip ok', text: 'Cocok' }) : el('span', { class: 'chip bad', text: 'Tidak cocok' }),
+      el('button', { class: 'btn small', onclick: () => openVersions(item), text: 'Ganti versi' }));
+  }
+  body.append(line);
+  if (item.status === 'ready' && v) {
+    if (!v.matches) body.append(el('div', { class: 'pnote', text: 'Versi ini dibuat untuk Minecraft atau loader lain dan mungkin tidak jalan.' }));
+    else if (v.type !== 'release' && !item.manual) body.append(el('div', { class: 'pnote', text: 'Belum ada release stabil untuk ' + scope + ', jadi dipakai ' + TLABEL[v.type].toLowerCase() + '.' }));
+  }
+  if (item.auto && item.requiredBy) body.append(el('div', { class: 'pnote', text: 'Dibutuhkan oleh ' + item.requiredBy }));
+
+  return el('div', { class: 'pitem ' + st.cls },
+    icon(item.icon, item.title, true), body,
+    el('button', { class: 'x', title: 'Hapus ' + item.title, 'aria-label': 'Hapus ' + item.title, onclick: () => removeItem(item), text: '×' }));
+}
+function renderPack() {
+  const box = $('#pack');
+  box.replaceChildren();
+  const counts = { ok: 0, warn: 0, bad: 0, loading: 0 };
+  for (const type of Object.keys(TYPES)) {
+    const list = S.items.filter(i => i.type === type);
+    if (!list.length) continue;
+    box.append(el('div', { class: 'grp' }, TYPES[type].label, el('span', { text: list.length })));
+    for (const it of list) {
+      const st = packState(it);
+      counts[st.cls || 'loading']++;
+      box.append(packRow(it));
+    }
+  }
+  if (!S.items.length) {
+    box.append(el('div', { class: 'empty', text: 'Belum ada isi. Cari mod, texture pack, atau shader di sebelah, lalu klik Tambah.' }));
+  }
+  const parts = [];
+  if (S.items.length) {
+    parts.push(S.items.length + ' item');
+    if (counts.ok + counts.warn) parts.push((counts.ok + counts.warn) + ' cocok');
+    if (counts.bad) parts.push(counts.bad + ' bermasalah');
+    if (counts.loading) parts.push(counts.loading + ' dicari');
+  }
+  $('#sum').textContent = parts.join(', ');
+  const ready = exportable().length;
+  $('#btnMrpack').disabled = ready === 0;
+  $('#btnCopy').disabled = S.items.length === 0;
+  $('#btnClear').disabled = S.items.length === 0;
+}
+
+/* ---------- Dialog pilih versi ---------- */
+const dlg = $('#verDialog');
+dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+
+async function openVersions(item) {
+  if (!dlg.open) dlg.showModal();
+  draw();
+
+  function draw(loading) {
+    const body = $('#verBody');
+    body.replaceChildren();
+    const scope = 'Minecraft ' + S.mc + (item.type === 'mod' ? ' dengan ' + LOADERS[S.loader].label : '');
+    body.append(
+      el('header', {}, el('div', {}, el('h2', { text: item.title })),
+        el('button', { class: 'x', 'aria-label': 'Tutup', onclick: () => dlg.close(), text: '×' })),
+      el('p', { class: 'sub', text: 'Baris hijau cocok dengan ' + scope + '. Versi yang disarankan ada di paling atas.' }));
+    const list = el('div', { class: 'vlist' });
+    if (loading) list.append(el('div', { class: 'empty', text: 'Memuat semua versi…' }));
+    else if (!item.versions.length) list.append(el('div', { class: 'empty', text: 'Belum ada versi sama sekali.' }));
+    const best = item.versions.find(v => v.matches);
+    item.versions.forEach(v => {
+      const gvText = v.gv.length > 4 ? v.gv.slice(0, 4).join(', ') + ' +' + (v.gv.length - 4) : v.gv.join(', ');
+      list.append(el('button', {
+        class: 'vrow ' + (v.matches ? 'match' : 'nomatch') + (v.id === item.vid ? ' current' : ''),
+        onclick: () => choose(item, v, best)
+      },
+        el('span', { class: 'vnum', text: v.number }),
+        el('span', { class: 'vtags' },
+          best && v.id === best.id ? el('span', { class: 'chip ok', text: 'Disarankan' }) : null,
+          el('span', { class: 'chip ' + TCLASS[v.type], text: TLABEL[v.type] }),
+          el('span', { class: 'chip ' + (v.matches ? 'ok' : 'bad'), text: v.matches ? 'Cocok' : 'Tidak cocok' })),
+        el('span', { class: 'vmeta', text: fmtDate(v.date) + '. Minecraft ' + gvText + (item.type === 'mod' ? '. ' + v.loaders.join(', ') : '') })));
+    });
+    body.append(list);
+    const foot = el('footer', {});
+    if (!item.allLoaded && !loading) {
+      foot.append(el('button', { class: 'btn', text: 'Tampilkan semua versi (termasuk yang tidak cocok)', onclick: async () => {
+        draw(true);
+        try { item.versions = sortVersions(await loadVersions(item, true)); item.allLoaded = true; }
+        catch (e) { toast('Gagal memuat semua versi.', 'bad'); }
+        draw();
+      } }));
+    } else foot.append(el('span'));
+    foot.append(el('button', { class: 'btn', onclick: () => dlg.close(), text: 'Tutup' }));
+    body.append(foot);
+  }
+
+  if (item.status === 'none' && !item.allLoaded) {
+    draw(true);
+    try { item.versions = sortVersions(await loadVersions(item, true)); item.allLoaded = true; }
+    catch (e) { toast('Gagal memuat semua versi.', 'bad'); }
+    draw();
+  }
+}
+function choose(item, v, best) {
+  item.vid = v.id;
+  item.manual = !(best && best.id === v.id);
+  item.status = 'ready';
+  dlg.close();
+  renderPack(); save();
+  if (!v.matches) toast('Versi ini tidak cocok dengan pengaturan pack. Pack bisa gagal jalan.', 'bad');
+  else addDeps(item, v, S.gen);
+}
+
+/* ---------- Ekspor ---------- */
+function primaryFile(v) { return v.files.find(f => f.primary) || v.files[0]; }
+function exportable() {
+  return S.items.filter(i => {
+    const v = selVersion(i);
+    return i.status === 'ready' && v && v.files && v.files.length;
+  });
+}
+function envVal(x) { return x === 'required' || x === 'optional' || x === 'unsupported' ? x : 'optional'; }
+function download(blob, name) {
+  const a = el('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+async function exportMrpack() {
+  const list = exportable();
+  if (!list.length) return;
+  if (!S.loaderVer) { toast('Isi versi loader dulu sebelum mengunduh.', 'bad'); return; }
+  if (!window.JSZip) { toast('Pustaka ZIP belum selesai dimuat. Coba lagi sebentar.', 'bad'); return; }
+  const bad = list.filter(i => !selVersion(i).matches).length;
+  const pending = S.items.length - list.length;
+  const files = list.map(i => {
+    const f = primaryFile(selVersion(i));
+    return {
+      path: TYPES[i.type].folder + '/' + f.filename,
+      hashes: { sha1: f.hashes.sha1, sha512: f.hashes.sha512 },
+      env: { client: envVal(i.client), server: envVal(i.server) },
+      downloads: [f.url],
+      fileSize: f.size
+    };
+  });
+  const index = {
+    formatVersion: 1, game: 'minecraft',
+    versionId: S.packVer || '1.0.0',
+    name: S.name || 'Modpack',
+    summary: 'Dibuat dengan Reonzy MP Maker',
+    files,
+    dependencies: { minecraft: S.mc, [LOADERS[S.loader].key]: S.loaderVer }
+  };
+  const zip = new JSZip();
+  zip.file('modrinth.index.json', JSON.stringify(index, null, 2));
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  download(blob, slugify(S.name) + '-' + slugify(S.packVer) + '.mrpack');
+  let msg = 'Modpack diunduh (' + files.length + ' file).';
+  if (pending) msg += ' ' + pending + ' item dilewati karena belum punya versi.';
+  if (bad) msg += ' ' + bad + ' versi tidak cocok.';
+  toast(msg, pending || bad ? 'bad' : 'ok');
+}
+
+function listText() {
+  const out = [S.name + ' ' + S.packVer, 'Minecraft ' + S.mc + ', ' + LOADERS[S.loader].label + ' ' + S.loaderVer, ''];
+  for (const type of Object.keys(TYPES)) {
+    const l = S.items.filter(i => i.type === type);
+    if (!l.length) continue;
+    out.push(TYPES[type].label + ':');
+    for (const i of l) {
+      const v = selVersion(i);
+      out.push('- ' + i.title + (v ? ' ' + v.number + ' (' + TLABEL[v.type].toLowerCase() + ')' : ' (belum ada versi)'));
+    }
+    out.push('');
+  }
+  return out.join('\n').trim();
+}
+
+/* ---------- Simpan / buka proyek ---------- */
+function projectJSON() {
+  return {
+    app: 'reonzy-mp-maker', v: 1,
+    name: S.name, packVer: S.packVer, mc: S.mc, loader: S.loader, loaderVer: S.loaderVer,
+    pref: S.pref, autoDeps: S.autoDeps,
+    items: S.items.map(i => ({ id: i.id, vid: i.manual ? i.vid : null, manual: !!i.manual, auto: !!i.auto, requiredBy: i.requiredBy || null }))
+  };
+}
+async function applyProject(o) {
+  if (!o || !Array.isArray(o.items) || !LOADERS[o.loader]) throw new Error('format');
+  Object.assign(S, {
+    name: o.name || 'Modpack Saya', packVer: o.packVer || '1.0.0', mc: o.mc || S.mc,
+    loader: o.loader, loaderVer: o.loaderVer || '', pref: o.pref === 'newest' ? 'newest' : 'auto',
+    autoDeps: o.autoDeps !== false
+  });
+  const cur = S.mcList.find(v => v.version === S.mc);
+  if (cur && cur.version_type !== 'release') S.showSnap = true;
+  S.items = await buildItems(o.items);
+  renderConfig(); renderPack();
+  const g = ++S.gen;
+  refreshLoader();
+  runSearch(true);
+  await pool(S.items.slice(), 6, i => resolveItem(i, g));
+}
+async function buildItems(saved) {
+  const ids = saved.map(s => s.id).filter(Boolean);
+  if (!ids.length) return [];
+  const projects = [];
+  for (let k = 0; k < ids.length; k += 50) {
+    const chunk = ids.slice(k, k + 50);
+    try { projects.push(...await getJSON(API + '/projects?ids=' + encodeURIComponent(JSON.stringify(chunk)))); } catch (e) { /* lewati */ }
+  }
+  const byId = new Map(projects.map(p => [p.id, p]));
+  const out = [];
+  for (const s of saved) {
+    const p = byId.get(s.id);
+    if (!p || !TYPES[p.project_type]) continue;
+    const it = makeItem(p);
+    it.vid = s.vid || null; it.manual = !!s.manual && !!s.vid;
+    it.auto = !!s.auto; it.requiredBy = s.requiredBy || null;
+    out.push(it);
+  }
+  return out;
+}
+
+/* ---------- Event ---------- */
+function bind() {
+  // loader
+  const lw = $('#loaders');
+  for (const [k, l] of Object.entries(LOADERS)) {
+    lw.append(el('label', {},
+      el('input', { type: 'radio', name: 'loader', value: k }),
+      el('span', { text: l.label })));
+  }
+  lw.addEventListener('change', e => {
+    S.loader = e.target.value;
+    renderLoaderHint();
+    refreshLoader();
+    onConfigChange();
+  });
+  // tab
+  const tabs = $('#tabs');
+  for (const [k, t] of Object.entries(TYPES)) {
+    tabs.append(el('button', {
+      role: 'tab', 'aria-selected': String(k === S.tab), 'data-tab': k, text: t.label,
+      onclick: () => {
+        S.tab = k;
+        tabs.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === k)));
+        runSearch(true);
+      }
+    }));
+  }
+  $('#mc').addEventListener('change', e => { S.mc = e.target.value; refreshLoader(); onConfigChange(); });
+  $('#snap').addEventListener('change', e => {
+    S.showSnap = e.target.checked;
+    if (!mcOptions().some(v => v.version === S.mc)) { S.mc = mcOptions()[0].version; renderConfig(); refreshLoader(); onConfigChange(); }
+    else renderConfig();
+    save();
+  });
+  $('#lv').addEventListener('change', e => { S.loaderVer = e.target.value; save(); });
+  $('#lvManual').addEventListener('input', e => { S.loaderVer = e.target.value.trim(); save(); });
+  $('#name').addEventListener('input', e => { S.name = e.target.value; save(); });
+  $('#packVer').addEventListener('input', e => { S.packVer = e.target.value; save(); });
+  $('#pref').addEventListener('change', e => { S.pref = e.target.value; onConfigChange(); });
+  $('#deps').addEventListener('change', e => {
+    S.autoDeps = e.target.checked; save();
+    if (S.autoDeps) S.items.slice().forEach(i => { const v = selVersion(i); if (v) addDeps(i, v, S.gen); });
+  });
+  let t;
+  $('#q').addEventListener('input', e => {
+    S.query = e.target.value.trim();
+    clearTimeout(t);
+    t = setTimeout(() => runSearch(true), 350);
+  });
+  $('#more').addEventListener('click', () => runSearch(false));
+  $('#btnMrpack').addEventListener('click', exportMrpack);
+  $('#btnCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(listText()); toast('Daftar disalin.', 'ok'); }
+    catch (e) { toast('Browser menolak akses clipboard.', 'bad'); }
+  });
+  $('#btnSave').addEventListener('click', () => {
+    download(new Blob([JSON.stringify(projectJSON(), null, 2)], { type: 'application/json' }), slugify(S.name) + '.reonzy.json');
+  });
+  $('#btnOpen').addEventListener('click', () => $('#file').click());
+  $('#file').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { await applyProject(JSON.parse(await f.text())); toast('Proyek dibuka.', 'ok'); }
+    catch (err) { toast('File proyek tidak valid.', 'bad'); }
+  });
+  $('#btnClear').addEventListener('click', () => {
+    if (!confirm('Kosongkan semua isi pack?')) return;
+    S.items = []; renderPack(); renderResults(); save();
+  });
+}
+
+/* ---------- Mulai ---------- */
+async function boot() {
+  const saved = loadSaved();
+  if (saved) {
+    Object.assign(S, {
+      name: saved.name || S.name, packVer: saved.packVer || S.packVer,
+      mc: saved.mc || '', loader: LOADERS[saved.loader] ? saved.loader : 'fabric',
+      loaderVer: saved.loaderVer || '', pref: saved.pref === 'newest' ? 'newest' : 'auto',
+      autoDeps: saved.autoDeps !== false, showSnap: !!saved.showSnap
+    });
+  }
+  bind();
+  renderPack();
+  renderResults();
+  try {
+    const d = await getJSON(API + '/tag/game_version');
+    S.mcList = d.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+  } catch (e) {
+    $('#resInfo').textContent = 'Tidak bisa memuat daftar versi Minecraft dari Modrinth. Periksa koneksi internet, lalu muat ulang halaman.';
+    return;
+  }
+  const savedMc = S.mcList.find(v => v.version === S.mc);
+  if (savedMc && savedMc.version_type !== 'release') S.showSnap = true;
+  if (!savedMc) S.mc = (mcOptions()[0] || {}).version || '';
+  renderConfig();
+  refreshLoader();
+  runSearch(true);
+
+  if (saved && Array.isArray(saved.items) && saved.items.length) {
+    S.items = await buildItems(saved.items);
+    renderPack(); renderResults();
+    const g = ++S.gen;
+    await pool(S.items.slice(), 6, i => resolveItem(i, g));
+  }
+}
+boot();
