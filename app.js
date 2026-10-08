@@ -4,9 +4,9 @@
 const API = 'https://api.modrinth.com/v2';
 const KEY = 'reonzy-mp-maker-v1';
 const TYPES = {
-  mod:          { label: 'Mod',          plural: 'mod',          folder: 'mods',          path: 'mod' },
-  resourcepack: { label: 'Texture pack', plural: 'texture pack', folder: 'resourcepacks', path: 'resourcepack' },
-  shader:       { label: 'Shader',       plural: 'shader',       folder: 'shaderpacks',   path: 'shader' }
+  mod:          { folder: 'mods',          path: 'mod' },
+  resourcepack: { folder: 'resourcepacks', path: 'resourcepack' },
+  shader:       { folder: 'shaderpacks',   path: 'shader' }
 };
 const LOADERS = {
   fabric:   { label: 'Fabric',   key: 'fabric-loader', cats: ['fabric'] },
@@ -36,8 +36,9 @@ function el(tag, props = {}, ...kids) {
   }
   return e;
 }
-const fmtNum = n => new Intl.NumberFormat('id-ID', { notation: 'compact' }).format(n || 0);
-const fmtDate = d => new Date(d).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
+const locale = () => (typeof S !== 'undefined' && S.lang === 'en') ? 'en-US' : 'id-ID';
+const fmtNum = n => new Intl.NumberFormat(locale(), { notation: 'compact' }).format(n || 0);
+const fmtDate = d => new Date(d).toLocaleDateString(locale(), { year: 'numeric', month: 'short', day: 'numeric' });
 const slugify = s => (s || 'modpack').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'modpack';
 
 let noticeTimer;
@@ -82,6 +83,7 @@ function cmpVer(a, b) {
 
 /* ---------- State ---------- */
 const S = {
+  lang: (() => { try { return localStorage.getItem(LANGKEY) || 'id'; } catch (e) { return 'id'; } })(),
   name: 'Modpack Saya', packVer: '1.0.0',
   mc: '', loader: 'fabric', loaderVer: '',
   pref: 'auto', autoDeps: true, showSnap: false,
@@ -203,6 +205,17 @@ function makeItem(p) {
   };
 }
 const selVersion = item => item.versions.find(v => v.id === item.vid);
+const depTitles = new Map(); // project_id -> nama tampilan dependensi (cache)
+async function depName(d) {
+  if (depTitles.has(d.project_id)) return depTitles.get(d.project_id);
+  let name = d.project_id;
+  try {
+    const p = await getJSON(API + '/project/' + d.project_id);
+    name = p.title || p.slug || d.project_id;
+  } catch (e) { /* pakai id mentah */ }
+  depTitles.set(d.project_id, name);
+  return name;
+}
 
 async function resolveItem(item, gen) {
   item.status = 'loading';
@@ -264,7 +277,7 @@ function addItem(hit) {
   save();
 }
 function removeItem(item) {
-  S.items = S.items.filter(i => i !== item);
+  S.items = S.items.filter(i => i !== item && (!item.id || i.id !== item.id));
   renderPack(); renderResults(); save();
 }
 
@@ -317,14 +330,13 @@ function renderConfig() {
   renderLoaderHint();
 }
 function renderLoaderHint() {
-  $('#loaderHint').textContent = S.loader === 'quilt'
-    ? 'Quilt juga bisa menjalankan mod Fabric, jadi keduanya ikut dicari.' : '';
+  $('#loaderHint').textContent = S.loader === 'quilt' ? tr('quiltHint') : '';
 }
 function renderLoader() {
   const sel = $('#lv'), man = $('#lvManual'), hint = $('#lvHint');
   hint.className = 'hint';
   if (S.loaderList === null) {
-    sel.replaceChildren(el('option', { text: 'Memuat…' }));
+    sel.replaceChildren(el('option', { text: tr('lvLoading') }));
     sel.disabled = true; sel.hidden = false; man.hidden = true; hint.textContent = '';
     return;
   }
@@ -333,17 +345,17 @@ function renderLoader() {
     sel.hidden = true; man.hidden = false; man.value = S.loaderVer;
     hint.className = 'hint bad';
     hint.textContent = S.loaderFailed
-      ? 'Daftar versi loader tidak bisa dimuat. Ketik versinya sendiri.'
-      : 'Belum ada ' + LOADERS[S.loader].label + ' untuk Minecraft ' + S.mc + '. Pilih versi Minecraft atau loader lain.';
+      ? tr('lvManualFail')
+      : tr('lvNone', { loader: LOADERS[S.loader].label, mc: S.mc });
     return;
   }
   sel.hidden = false; man.hidden = true;
   sel.replaceChildren(...S.loaderList.slice(0, 150).map(x =>
-    el('option', { value: x.v, text: x.v + (x.stable ? '' : ' (beta)') })));
+    el('option', { value: x.v, text: x.v + (x.stable ? '' : tr('betaTag')) })));
   if (!S.loaderList.slice(0, 150).some(x => x.v === S.loaderVer))
     sel.append(el('option', { value: S.loaderVer, text: S.loaderVer }));
   sel.value = S.loaderVer;
-  hint.textContent = 'Versi stabil terbaru dipilih otomatis.';
+  hint.textContent = tr('lvAuto');
 }
 
 /* ---------- Render: hasil pencarian ---------- */
@@ -360,45 +372,80 @@ function renderResults() {
   ul.replaceChildren();
   more.hidden = true;
   const t = TYPES[S.tab];
-  $('#tabHint').textContent = S.tab === 'shader'
-    ? 'Shader butuh Iris atau OptiFine di launcher. Iris bisa ditambahkan dari tab Mod.' : '';
-  if (!S.mc) { info.textContent = 'Pilih versi Minecraft dulu.'; return; }
+  $('#tabHint').textContent = S.tab === 'shader' ? tr('tabHintShader') : '';
+  if (!S.mc) { info.textContent = tr('mcFirst'); return; }
   if (S.searchErr) {
     info.textContent = '';
-    ul.append(el('li', { class: 'empty' }, 'Gagal menghubungi Modrinth. Periksa koneksi internet, lalu ',
-      el('button', { class: 'btn small', onclick: () => runSearch(S.results.length === 0), text: 'coba lagi' })));
+    ul.append(el('li', { class: 'empty' }, tr('searchFail'),
+      el('button', { class: 'btn small', onclick: () => runSearch(S.results.length === 0), text: tr('retry') })));
     return;
   }
   if (S.searching && !S.results.length) {
-    info.textContent = 'Mencari…';
+    info.textContent = tr('searching');
     for (let i = 0; i < 6; i++) ul.append(el('li', { class: 'skel' }));
     return;
   }
-  const scope = 'Minecraft ' + S.mc + (S.tab === 'mod' ? ' dengan ' + LOADERS[S.loader].label : '');
+  const scope = 'Minecraft ' + S.mc + (S.tab === 'mod' ? ' ' + tr('withLoader', { loader: LOADERS[S.loader].label }) : '');
   if (!S.results.length) {
     info.textContent = '';
-    ul.append(el('li', { class: 'empty', text: 'Tidak ada ' + t.plural + (S.query ? ' dengan kata "' + S.query + '"' : '') + ' untuk ' + scope + '.' }));
+    ul.append(el('li', { class: 'empty', text: tr('noResults', {
+      plural: typePlural(S.tab),
+      query: S.query ? tr('withQuery', { q: S.query }) : '',
+      scope }) }));
     return;
   }
-  info.textContent = S.total.toLocaleString('id-ID') + ' ' + t.plural + ' tersedia untuk ' + scope + '.';
+  info.textContent = tr('resCount', {
+    total: S.total.toLocaleString(locale()),
+    plural: typePlural(S.tab), scope });
   for (const h of S.results) {
     const inPack = S.items.some(i => i.id === h.project_id);
     ul.append(el('li', { class: 'card' + (inPack ? ' in' : '') },
       icon(h.icon_url, h.title),
       el('div', {},
-        el('h3', {}, h.title, el('small', { text: 'oleh ' + h.author })),
+        el('h3', {}, h.title, el('small', { text: tr('by') + h.author })),
         el('p', { text: h.description }),
         el('div', { class: 'meta' },
-          el('span', { text: fmtNum(h.downloads) + ' unduhan' }),
-          h.latest_version ? el('span', { text: 'terbaru ' + h.latest_version }) : null,
-          el('a', { href: 'https://modrinth.com/' + t.path + '/' + h.slug, target: '_blank', rel: 'noopener', text: 'Lihat di Modrinth' }))),
-      el('button', { class: 'btn add', disabled: inPack, onclick: () => addItem(h), text: inPack ? 'Sudah ada' : 'Tambah' })));
+          el('span', { text: fmtNum(h.downloads) + ' ' + tr('downloads') }),
+          h.latest_version ? el('span', { text: tr('latest') + h.latest_version }) : null,
+          el('a', { href: 'https://modrinth.com/' + t.path + '/' + h.slug, target: '_blank', rel: 'noopener', text: tr('viewModrinth') }))),
+      inPack
+        ? el('div', { class: 'inpack' },
+          el('span', { class: 'have', title: tr('added'), 'aria-label': tr('added'), text: '✓' }),
+          el('button', {
+            class: 'unadd', title: tr('remove', { title: h.title }), 'aria-label': tr('remove', { title: h.title }),
+            onclick: () => removeItem({ id: h.project_id }), text: '✕'
+          }))
+        : el('button', { class: 'btn add', onclick: () => addItem(h), text: tr('add') })));
   }
   more.hidden = S.results.length >= S.total;
   more.disabled = S.searching;
 }
 
 /* ---------- Render: isi pack ---------- */
+async function addDepById(pid, requiredBy) {
+  if (S.items.some(i => i.id === pid)) return;
+  try {
+    const p = await getJSON(API + '/project/' + pid);
+    if (!TYPES[p.project_type] || S.items.some(i => i.id === p.id)) return;
+    const it = makeItem(p);
+    it.auto = true;
+    it.requiredBy = requiredBy || null;
+    S.items.push(it);
+    depTitles.set(it.id, it.title);
+    renderPack(); renderResults();
+    resolveItem(it, S.gen);
+    save();
+  } catch (e) { toast(tr('depAddFail'), 'bad'); }
+}
+function missingDeps(item) {
+  const v = selVersion(item);
+  if (!v || !v.deps || item.type !== 'mod') return [];
+  return v.deps.filter(d =>
+    d.project_id && d.dependency_type === 'required' && !S.items.some(i => i.id === d.project_id));
+}
+function missingDepsCount() {
+  return S.items.reduce((n, i) => n + missingDeps(i).length, 0);
+}
 function packState(item) {
   if (item.status === 'loading') return { cls: '', text: '' };
   if (item.status === 'none' || item.status === 'error') return { cls: 'bad' };
@@ -414,39 +461,87 @@ function packRow(item) {
   const scope = S.mc + (item.type === 'mod' ? ' / ' + LOADERS[S.loader].label : '');
 
   if (item.status === 'loading') {
-    line.append(el('span', { class: 'chip', text: 'Mencari versi…' }));
+    line.append(el('span', { class: 'chip', text: tr('findingVer') }));
   } else if (item.status === 'none') {
-    line.append(el('span', { class: 'chip bad', text: 'Tidak ada versi untuk ' + scope }),
-      el('button', { class: 'btn small', onclick: () => openVersions(item), text: 'Lihat semua versi' }));
+    line.append(el('span', { class: 'chip bad', text: tr('noVerFor', { scope }) }),
+      el('button', { class: 'btn small', onclick: () => openVersions(item), text: tr('viewAll') }));
   } else if (item.status === 'error') {
-    line.append(el('span', { class: 'chip bad', text: 'Gagal memuat versi' }),
-      el('button', { class: 'btn small', onclick: () => resolveItem(item, S.gen), text: 'Coba lagi' }));
+    line.append(el('span', { class: 'chip bad', text: tr('loadVerFail') }),
+      el('button', { class: 'btn small', onclick: () => resolveItem(item, S.gen), text: tr('retry') }));
   } else if (v) {
     line.append(
       el('span', { text: v.number }),
       el('span', { class: 'chip ' + TCLASS[v.type], text: TLABEL[v.type] }),
-      v.matches ? el('span', { class: 'chip ok', text: 'Cocok' }) : el('span', { class: 'chip bad', text: 'Tidak cocok' }),
-      el('button', { class: 'btn small', onclick: () => openVersions(item), text: 'Ganti versi' }));
+      v.matches ? el('span', { class: 'chip ok', text: tr('match') }) : el('span', { class: 'chip bad', text: tr('nomatch') }),
+      el('button', { class: 'btn small', onclick: () => openVersions(item), text: tr('changeVer') }));
   }
   body.append(line);
   if (item.status === 'ready' && v) {
-    if (!v.matches) body.append(el('div', { class: 'pnote', text: 'Versi ini dibuat untuk Minecraft atau loader lain dan mungkin tidak jalan.' }));
-    else if (v.type !== 'release' && !item.manual) body.append(el('div', { class: 'pnote', text: 'Belum ada release stabil untuk ' + scope + ', jadi dipakai ' + TLABEL[v.type].toLowerCase() + '.' }));
+    if (!v.matches) body.append(el('div', { class: 'pnote', text: tr('mismatchNote') }));
+    else if (v.type !== 'release' && !item.manual) body.append(el('div', { class: 'pnote', text: tr('betaNote', { scope, type: TLABEL[v.type].toLowerCase() }) }));
   }
-  if (item.auto && item.requiredBy) body.append(el('div', { class: 'pnote', text: 'Dibutuhkan oleh ' + item.requiredBy }));
+  if (item.auto && item.requiredBy) body.append(el('div', { class: 'pnote', text: tr('needBy', { who: item.requiredBy }) }));
+  if (item.status === 'ready' && v && v.deps && v.deps.length && item.type === 'mod') {
+    const box = el('div', { class: 'reqlist' });
+    const reqs = v.deps.filter(d => d.project_id && (d.dependency_type === 'required' || d.dependency_type === 'optional'));
+    if (reqs.length) {
+      const missingReq = reqs.filter(d =>
+        d.dependency_type === 'required' && !S.items.some(i => i.id === d.project_id));
+      box.append(el('div', { class: 'reqhead', text:
+        tr('reqTitle') + (missingReq.length ? ' — ' + missingReq.length + ' ' + tr('reqMissing') : ' — ' + tr('reqOk')) }));
+      for (const d of reqs) {
+        const opt = d.dependency_type === 'optional';
+        const has = S.items.some(i => i.id === d.project_id);
+        const name = depTitles.get(d.project_id) || d.project_id;
+        const row = el('div', { class: 'req' + (opt ? ' opt' : '') },
+          el('span', { text: name }),
+          el('span', { class: 'chip ' + (opt ? '' : has ? 'ok' : 'bad'), text: opt ? tr('reqOpt') : has ? tr('match') : tr('reqMissing') }));
+        if (!opt && !has) {
+          row.append(el('button', { class: 'btn small adddep', 'data-pid': d.project_id, text: tr('add') }));
+        }
+        box.append(row);
+      }
+      if (missingReq.length > 1) {
+        box.append(el('button', { class: 'btn small addall', text: tr('reqAddAll') }));
+      }
+      body.append(box);
+      if (reqs.some(d => !depTitles.has(d.project_id))) {
+        (async () => {
+          const g = S.gen;
+          for (const d of reqs) {
+            if (!depTitles.has(d.project_id)) await depName(d);
+          }
+          if (g === S.gen) renderPack();
+        })();
+      }
+    }
+  }
 
-  return el('div', { class: 'pitem ' + st.cls },
+  return el('div', { class: 'pitem ' + st.cls, 'data-id': item.id },
     icon(item.icon, item.title, true), body,
-    el('button', { class: 'x', title: 'Hapus ' + item.title, 'aria-label': 'Hapus ' + item.title, onclick: () => removeItem(item), text: '×' }));
+    el('button', { class: 'x', title: tr('remove', { title: item.title }), 'aria-label': tr('remove', { title: item.title }), onclick: () => removeItem(item), text: '×' }));
 }
 function renderPack() {
   const box = $('#pack');
   box.replaceChildren();
+  box.onclick = async e => {
+    const row = e.target.closest('.pitem');
+    const owner = row ? S.items.find(i => i.id === row.dataset.id) : null;
+    const add = e.target.closest('.adddep');
+    if (add) {
+      addDepById(add.dataset.pid, owner ? owner.title : '');
+      return;
+    }
+    const all = e.target.closest('.addall');
+    if (all && owner) {
+      for (const d of missingDeps(owner)) await addDepById(d.project_id, owner.title);
+    }
+  };
   const counts = { ok: 0, warn: 0, bad: 0, loading: 0 };
   for (const type of Object.keys(TYPES)) {
     const list = S.items.filter(i => i.type === type);
     if (!list.length) continue;
-    box.append(el('div', { class: 'grp' }, TYPES[type].label, el('span', { text: list.length })));
+    box.append(el('div', { class: 'grp' }, typeLabel(type), el('span', { text: list.length })));
     for (const it of list) {
       const st = packState(it);
       counts[st.cls || 'loading']++;
@@ -454,16 +549,19 @@ function renderPack() {
     }
   }
   if (!S.items.length) {
-    box.append(el('div', { class: 'empty', text: 'Belum ada isi. Cari mod, texture pack, atau shader di sebelah, lalu klik Tambah.' }));
+    box.append(el('div', { class: 'empty', text: tr('emptyPack') }));
   }
   const parts = [];
   if (S.items.length) {
-    parts.push(S.items.length + ' item');
-    if (counts.ok + counts.warn) parts.push((counts.ok + counts.warn) + ' cocok');
-    if (counts.bad) parts.push(counts.bad + ' bermasalah');
-    if (counts.loading) parts.push(counts.loading + ' dicari');
+    parts.push(S.items.length + ' ' + tr('sumItem'));
+    if (counts.ok + counts.warn) parts.push((counts.ok + counts.warn) + ' ' + tr('sumMatch'));
+    if (counts.bad) parts.push(counts.bad + ' ' + tr('sumBad'));
+    if (counts.loading) parts.push(counts.loading + ' ' + tr('sumLoading'));
+    const miss = missingDepsCount();
+    if (miss) parts.push(miss + ' ' + tr('sumMissing'));
   }
   $('#sum').textContent = parts.join(', ');
+  $('#packCount').textContent = S.items.length;
   const ready = exportable().length;
   $('#btnMrpack').disabled = ready === 0;
   $('#btnCopy').disabled = S.items.length === 0;
@@ -481,14 +579,14 @@ async function openVersions(item) {
   function draw(loading) {
     const body = $('#verBody');
     body.replaceChildren();
-    const scope = 'Minecraft ' + S.mc + (item.type === 'mod' ? ' dengan ' + LOADERS[S.loader].label : '');
+    const scope = 'Minecraft ' + S.mc + (item.type === 'mod' ? ' ' + tr('withLoader', { loader: LOADERS[S.loader].label }) : '');
     body.append(
       el('header', {}, el('div', {}, el('h2', { text: item.title })),
-        el('button', { class: 'x', 'aria-label': 'Tutup', onclick: () => dlg.close(), text: '×' })),
-      el('p', { class: 'sub', text: 'Baris hijau cocok dengan ' + scope + '. Versi yang disarankan ada di paling atas.' }));
+        el('button', { class: 'x', 'aria-label': tr('close'), onclick: () => dlg.close(), text: '×' })),
+      el('p', { class: 'sub', text: tr('dlgSub', { scope }) }));
     const list = el('div', { class: 'vlist' });
-    if (loading) list.append(el('div', { class: 'empty', text: 'Memuat semua versi…' }));
-    else if (!item.versions.length) list.append(el('div', { class: 'empty', text: 'Belum ada versi sama sekali.' }));
+    if (loading) list.append(el('div', { class: 'empty', text: tr('dlgLoading') }));
+    else if (!item.versions.length) list.append(el('div', { class: 'empty', text: tr('dlgEmpty') }));
     const best = item.versions.find(v => v.matches);
     item.versions.forEach(v => {
       const gvText = v.gv.length > 4 ? v.gv.slice(0, 4).join(', ') + ' +' + (v.gv.length - 4) : v.gv.join(', ');
@@ -498,29 +596,29 @@ async function openVersions(item) {
       },
         el('span', { class: 'vnum', text: v.number }),
         el('span', { class: 'vtags' },
-          best && v.id === best.id ? el('span', { class: 'chip ok', text: 'Disarankan' }) : null,
+          best && v.id === best.id ? el('span', { class: 'chip ok', text: tr('suggested') }) : null,
           el('span', { class: 'chip ' + TCLASS[v.type], text: TLABEL[v.type] }),
-          el('span', { class: 'chip ' + (v.matches ? 'ok' : 'bad'), text: v.matches ? 'Cocok' : 'Tidak cocok' })),
+          el('span', { class: 'chip ' + (v.matches ? 'ok' : 'bad'), text: v.matches ? tr('match') : tr('nomatch') })),
         el('span', { class: 'vmeta', text: fmtDate(v.date) + '. Minecraft ' + gvText + (item.type === 'mod' ? '. ' + v.loaders.join(', ') : '') })));
     });
     body.append(list);
     const foot = el('footer', {});
     if (!item.allLoaded && !loading) {
-      foot.append(el('button', { class: 'btn', text: 'Tampilkan semua versi (termasuk yang tidak cocok)', onclick: async () => {
+      foot.append(el('button', { class: 'btn', text: tr('showAll'), onclick: async () => {
         draw(true);
         try { item.versions = sortVersions(await loadVersions(item, true)); item.allLoaded = true; }
-        catch (e) { toast('Gagal memuat semua versi.', 'bad'); }
+        catch (e) { toast(tr('loadAllFail'), 'bad'); }
         draw();
       } }));
     } else foot.append(el('span'));
-    foot.append(el('button', { class: 'btn', onclick: () => dlg.close(), text: 'Tutup' }));
+    foot.append(el('button', { class: 'btn', onclick: () => dlg.close(), text: tr('close') }));
     body.append(foot);
   }
 
   if (item.status === 'none' && !item.allLoaded) {
     draw(true);
     try { item.versions = sortVersions(await loadVersions(item, true)); item.allLoaded = true; }
-    catch (e) { toast('Gagal memuat semua versi.', 'bad'); }
+    catch (e) { toast(tr('loadAllFail'), 'bad'); }
     draw();
   }
 }
@@ -530,7 +628,7 @@ function choose(item, v, best) {
   item.status = 'ready';
   dlg.close();
   renderPack(); save();
-  if (!v.matches) toast('Versi ini tidak cocok dengan pengaturan pack. Pack bisa gagal jalan.', 'bad');
+  if (!v.matches) toast(tr('packMismatch'), 'bad');
   else addDeps(item, v, S.gen);
 }
 
@@ -552,8 +650,8 @@ function download(blob, name) {
 async function exportMrpack() {
   const list = exportable();
   if (!list.length) return;
-  if (!S.loaderVer) { toast('Isi versi loader dulu sebelum mengunduh.', 'bad'); return; }
-  if (!window.JSZip) { toast('Pustaka ZIP belum selesai dimuat. Coba lagi sebentar.', 'bad'); return; }
+  if (!S.loaderVer) { toast(tr('needLoaderVer'), 'bad'); return; }
+  if (!window.JSZip) { toast(tr('zipNotReady'), 'bad'); return; }
   const bad = list.filter(i => !selVersion(i).matches).length;
   const pending = S.items.length - list.length;
   const files = list.map(i => {
@@ -570,7 +668,7 @@ async function exportMrpack() {
     formatVersion: 1, game: 'minecraft',
     versionId: S.packVer || '1.0.0',
     name: S.name || 'Modpack',
-    summary: 'Dibuat dengan Reonzy MP Maker',
+    summary: tr('madeWith'),
     files,
     dependencies: { minecraft: S.mc, [LOADERS[S.loader].key]: S.loaderVer }
   };
@@ -578,9 +676,9 @@ async function exportMrpack() {
   zip.file('modrinth.index.json', JSON.stringify(index, null, 2));
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
   download(blob, slugify(S.name) + '-' + slugify(S.packVer) + '.mrpack');
-  let msg = 'Modpack diunduh (' + files.length + ' file).';
-  if (pending) msg += ' ' + pending + ' item dilewati karena belum punya versi.';
-  if (bad) msg += ' ' + bad + ' versi tidak cocok.';
+  let msg = tr('dlDone', { n: files.length });
+  if (pending) msg += tr('dlSkip', { n: pending });
+  if (bad) msg += tr('dlBad', { n: bad });
   toast(msg, pending || bad ? 'bad' : 'ok');
 }
 
@@ -589,10 +687,10 @@ function listText() {
   for (const type of Object.keys(TYPES)) {
     const l = S.items.filter(i => i.type === type);
     if (!l.length) continue;
-    out.push(TYPES[type].label + ':');
+    out.push(typeLabel(type) + ':');
     for (const i of l) {
       const v = selVersion(i);
-      out.push('- ' + i.title + (v ? ' ' + v.number + ' (' + TLABEL[v.type].toLowerCase() + ')' : ' (belum ada versi)'));
+      out.push('- ' + i.title + (v ? ' ' + v.number + ' (' + TLABEL[v.type].toLowerCase() + ')' : ' ' + tr('noVerYet')));
     }
     out.push('');
   }
@@ -611,7 +709,7 @@ function projectJSON() {
 async function applyProject(o) {
   if (!o || !Array.isArray(o.items) || !LOADERS[o.loader]) throw new Error('format');
   Object.assign(S, {
-    name: o.name || 'Modpack Saya', packVer: o.packVer || '1.0.0', mc: o.mc || S.mc,
+    name: o.name || tr('defaultName'), packVer: o.packVer || '1.0.0', mc: o.mc || S.mc,
     loader: o.loader, loaderVer: o.loaderVer || '', pref: o.pref === 'newest' ? 'newest' : 'auto',
     autoDeps: o.autoDeps !== false
   });
@@ -645,8 +743,60 @@ async function buildItems(saved) {
   return out;
 }
 
+/* ---------- Bahasa ---------- */
+function setSide(open) {
+  document.body.classList.toggle('side-open', open);
+  $('#menuBtn').setAttribute('aria-expanded', String(open));
+  $('#scrim').hidden = !open;
+}
+function applyStaticLang() {
+  document.documentElement.lang = S.lang;
+  const meta = document.querySelector('meta[name="description"]');
+  if (meta) meta.setAttribute('content', tr('desc'));
+  document.querySelectorAll('[data-i18n]').forEach(elm => {
+    elm.textContent = tr(elm.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(elm => {
+    elm.setAttribute('placeholder', tr(elm.dataset.i18nPh));
+  });
+  document.querySelectorAll('[data-i18n-aria]').forEach(elm => {
+    elm.setAttribute('aria-label', tr(elm.dataset.i18nAria));
+  });
+  $('#langId').classList.toggle('on', S.lang === 'id');
+  $('#langEn').classList.toggle('on', S.lang === 'en');
+  $('#langId').setAttribute('aria-pressed', String(S.lang === 'id'));
+  $('#langEn').setAttribute('aria-pressed', String(S.lang === 'en'));
+}
+function setLang(lang) {
+  if (lang !== 'id' && lang !== 'en') return;
+  S.lang = lang;
+  try { localStorage.setItem(LANGKEY, lang); } catch (e) { /* abaikan */ }
+  if (S.name === I18N.id.defaultName || S.name === I18N.en.defaultName || !S.name) {
+    S.name = tr('defaultName');
+  }
+  applyStaticLang();
+  renderConfig();
+  renderLoaderHint();
+  renderLoader();
+  document.querySelectorAll('#tabs button').forEach(b => { b.textContent = typeLabel(b.dataset.tab); });
+  renderResults();
+  renderPack();
+  save();
+}
+
 /* ---------- Event ---------- */
 function bind() {
+  $('#menuBtn').addEventListener('click', () => setSide(!document.body.classList.contains('side-open')));
+  $('#sideClose').addEventListener('click', () => setSide(false));
+  $('#scrim').addEventListener('click', () => setSide(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setSide(false); });
+  $('#packBtn').addEventListener('click', () => {
+    setSide(false);
+    $('#packPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  window.matchMedia('(min-width: 1181px)').addEventListener('change', e => { if (e.matches) setSide(false); });
+  $('#langId').addEventListener('click', () => setLang('id'));
+  $('#langEn').addEventListener('click', () => setLang('en'));
   // loader
   const lw = $('#loaders');
   for (const [k, l] of Object.entries(LOADERS)) {
@@ -662,9 +812,9 @@ function bind() {
   });
   // tab
   const tabs = $('#tabs');
-  for (const [k, t] of Object.entries(TYPES)) {
+  for (const [k] of Object.entries(TYPES)) {
     tabs.append(el('button', {
-      role: 'tab', 'aria-selected': String(k === S.tab), 'data-tab': k, text: t.label,
+      role: 'tab', 'aria-selected': String(k === S.tab), 'data-tab': k, text: typeLabel(k),
       onclick: () => {
         S.tab = k;
         tabs.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === k)));
@@ -688,17 +838,17 @@ function bind() {
     S.autoDeps = e.target.checked; save();
     if (S.autoDeps) S.items.slice().forEach(i => { const v = selVersion(i); if (v) addDeps(i, v, S.gen); });
   });
-  let t;
+  let tm;
   $('#q').addEventListener('input', e => {
     S.query = e.target.value.trim();
-    clearTimeout(t);
-    t = setTimeout(() => runSearch(true), 350);
+    clearTimeout(tm);
+    tm = setTimeout(() => runSearch(true), 350);
   });
   $('#more').addEventListener('click', () => runSearch(false));
   $('#btnMrpack').addEventListener('click', exportMrpack);
   $('#btnCopy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(listText()); toast('Daftar disalin.', 'ok'); }
-    catch (e) { toast('Browser menolak akses clipboard.', 'bad'); }
+    try { await navigator.clipboard.writeText(listText()); toast(tr('copied'), 'ok'); }
+    catch (e) { toast(tr('clipDeny'), 'bad'); }
   });
   $('#btnSave').addEventListener('click', () => {
     download(new Blob([JSON.stringify(projectJSON(), null, 2)], { type: 'application/json' }), slugify(S.name) + '.reonzy.json');
@@ -708,11 +858,11 @@ function bind() {
     const f = e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    try { await applyProject(JSON.parse(await f.text())); toast('Proyek dibuka.', 'ok'); }
-    catch (err) { toast('File proyek tidak valid.', 'bad'); }
+    try { await applyProject(JSON.parse(await f.text())); toast(tr('opened'), 'ok'); }
+    catch (err) { toast(tr('invalidProj'), 'bad'); }
   });
   $('#btnClear').addEventListener('click', () => {
-    if (!confirm('Kosongkan semua isi pack?')) return;
+    if (!confirm(tr('confirmClear'))) return;
     S.items = []; renderPack(); renderResults(); save();
   });
 }
@@ -728,14 +878,16 @@ async function boot() {
       autoDeps: saved.autoDeps !== false, showSnap: !!saved.showSnap
     });
   }
+  if (!saved || !saved.name) S.name = tr('defaultName');
   bind();
+  applyStaticLang();
   renderPack();
   renderResults();
   try {
     const d = await getJSON(API + '/tag/game_version');
     S.mcList = d.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
   } catch (e) {
-    $('#resInfo').textContent = 'Tidak bisa memuat daftar versi Minecraft dari Modrinth. Periksa koneksi internet, lalu muat ulang halaman.';
+    $('#resInfo').textContent = tr('mcListFail');
     return;
   }
   const savedMc = S.mcList.find(v => v.version === S.mc);

@@ -15,89 +15,103 @@
 <body>
 
 <header class="top">
-  <h1 class="logo"><i aria-hidden="true"></i>Reonzy MP Maker</h1>
-  <p class="tag">Pilih versi, pilih mod, unduh modpack.</p>
+  <button type="button" id="menuBtn" class="menubtn" data-i18n-aria="menu" aria-label="Menu" aria-expanded="false" aria-controls="sidePanel">☰</button>
+  <div class="brand">
+    <h1 class="logo"><i aria-hidden="true"></i>Reonzy MP Maker</h1>
+    <p class="tag" data-i18n="tag">Pilih versi, pilih mod, unduh modpack.</p>
+  </div>
+  <button type="button" id="packBtn" class="packbtn" aria-controls="packPanel"><span data-i18n="packBtn">Pack</span><b id="packCount">0</b></button>
+  <div class="lang" role="group" aria-label="Bahasa / Language">
+    <button type="button" id="langId" aria-pressed="true">ID</button>
+    <button type="button" id="langEn" aria-pressed="false">EN</button>
+  </div>
 </header>
+
+<div id="scrim" hidden></div>
 
 <div id="notice" role="status" aria-live="polite"></div>
 
 <main class="app">
   <!-- Pengaturan -->
-  <aside class="panel side" aria-label="Pengaturan modpack">
-    <h2>Pengaturan pack</h2>
-
-    <div class="row2 field">
-      <label><span style="display:block;font-weight:600;margin-bottom:5px">Nama modpack</span><input type="text" id="name" maxlength="60" autocomplete="off"></label>
-      <label><span style="display:block;font-weight:600;margin-bottom:5px">Versi</span><input type="text" id="packVer" maxlength="20" autocomplete="off"></label>
+  <aside class="panel side" id="sidePanel" aria-label="Pengaturan modpack" data-i18n-aria="cfgAria">
+    <div class="sidehead">
+      <h2 data-i18n="cfgTitle">Pengaturan pack</h2>
+      <button type="button" id="sideClose" class="x" data-i18n-aria="close" aria-label="Tutup">×</button>
     </div>
 
-    <label class="field"><span>Versi Minecraft</span>
+    <div class="row2 field">
+      <label><span style="display:block;font-weight:600;margin-bottom:5px" data-i18n="packName">Nama modpack</span><input type="text" id="name" maxlength="60" autocomplete="off"></label>
+      <label><span style="display:block;font-weight:600;margin-bottom:5px" data-i18n="packVer">Versi</span><input type="text" id="packVer" maxlength="20" autocomplete="off"></label>
+    </div>
+
+    <label class="field"><span data-i18n="mcVer">Versi Minecraft</span>
       <select id="mc"></select>
     </label>
-    <label class="check"><input type="checkbox" id="snap"><span>Tampilkan snapshot dan versi pra-rilis</span></label>
+    <label class="check"><input type="checkbox" id="snap"><span data-i18n="snap">Tampilkan snapshot dan versi pra-rilis</span></label>
 
-    <fieldset class="field"><legend>Mod loader</legend>
+    <fieldset class="field"><legend data-i18n="loader">Mod loader</legend>
       <div class="loaders" id="loaders"></div>
       <p class="hint" id="loaderHint"></p>
     </fieldset>
 
-    <label class="field"><span>Versi loader</span>
+    <label class="field"><span data-i18n="loaderVer">Versi loader</span>
       <select id="lv"></select>
-      <input type="text" id="lvManual" placeholder="Ketik versi loader" hidden>
+      <input type="text" id="lvManual" data-i18n-ph="lvManualPh" placeholder="Ketik versi loader" hidden>
       <p class="hint" id="lvHint"></p>
     </label>
 
-    <label class="field"><span>Cara memilih versi mod</span>
+    <label class="field"><span data-i18n="pickMode">Cara memilih versi mod</span>
       <select id="pref">
-        <option value="auto">Utamakan release stabil, lalu beta, lalu alpha</option>
-        <option value="newest">Selalu yang paling baru</option>
+        <option value="auto" data-i18n="prefAuto">Utamakan release stabil, lalu beta, lalu alpha</option>
+        <option value="newest" data-i18n="prefNewest">Selalu yang paling baru</option>
       </select>
     </label>
-    <label class="check"><input type="checkbox" id="deps"><span>Tambahkan mod pendukung yang wajib (misalnya Fabric API) secara otomatis</span></label>
+    <label class="check"><input type="checkbox" id="deps"><span data-i18n="deps">Tambahkan mod pendukung yang wajib (misalnya Fabric API) secara otomatis</span></label>
 
-    <div class="legend" aria-label="Arti warna">
-      <div><span class="sw ok"></span>Hijau: versi cocok dengan Minecraft dan loader</div>
-      <div><span class="sw warn"></span>Kuning: cocok, tetapi hanya beta atau alpha</div>
-      <div><span class="sw bad"></span>Merah: tidak ada versi yang cocok</div>
+    <div class="legend" aria-label="Arti warna" data-i18n-aria="legendAria">
+      <div><span class="sw ok"></span><span data-i18n="lgOk">Hijau: versi cocok dengan Minecraft dan loader</span></div>
+      <div><span class="sw warn"></span><span data-i18n="lgWarn">Kuning: cocok, tetapi hanya beta atau alpha</span></div>
+      <div><span class="sw bad"></span><span data-i18n="lgBad">Merah: tidak ada versi yang cocok</span></div>
     </div>
   </aside>
 
   <!-- Cari -->
-  <section class="panel browse" aria-label="Cari konten">
-    <h2>Cari konten</h2>
+  <section class="panel browse" aria-label="Cari konten" data-i18n-aria="browseAria">
+    <h2 data-i18n="browseTitle">Cari konten</h2>
     <div class="tabs" role="tablist" id="tabs"></div>
-    <label class="field" style="margin-bottom:0"><span class="sr" style="position:absolute;left:-9999px">Cari</span>
-      <input type="search" id="q" placeholder="Cari nama, misalnya sodium atau complementary" autocomplete="off">
+    <label class="field" style="margin-bottom:0"><span class="sr" style="position:absolute;left:-9999px" data-i18n="searchSr">Cari</span>
+      <input type="search" id="q" data-i18n-ph="searchPh" placeholder="Cari nama, misalnya sodium atau complementary" autocomplete="off">
     </label>
     <p class="hint" id="tabHint"></p>
     <div class="resinfo" id="resInfo"></div>
     <ul class="list" id="results"></ul>
-    <button class="btn more" id="more" hidden>Muat lebih banyak</button>
+    <button class="btn more" id="more" hidden data-i18n="more">Muat lebih banyak</button>
   </section>
 
   <!-- Isi pack -->
-  <section class="panel packcol" aria-label="Isi modpack">
-    <h2>Isi modpack</h2>
+  <section class="panel packcol" id="packPanel" aria-label="Isi modpack" data-i18n-aria="packAria">
+    <h2 data-i18n="packTitle">Isi modpack</h2>
     <p class="sum" id="sum"></p>
     <div id="pack"></div>
     <div class="actions">
-      <button class="btn primary" id="btnMrpack">Unduh modpack (.mrpack)</button>
+      <button class="btn primary" id="btnMrpack" data-i18n="dlMrpack">Unduh modpack (.mrpack)</button>
       <div class="row">
-        <button class="btn small" id="btnCopy">Salin daftar</button>
-        <button class="btn small" id="btnSave">Simpan proyek</button>
-        <button class="btn small" id="btnOpen">Buka proyek</button>
+        <button class="btn small" id="btnCopy" data-i18n="copy">Salin daftar</button>
+        <button class="btn small" id="btnSave" data-i18n="save">Simpan proyek</button>
+        <button class="btn small" id="btnOpen" data-i18n="open">Buka proyek</button>
       </div>
-      <button class="btn small ghost" id="btnClear">Kosongkan pack</button>
-      <p class="hint">File .mrpack bisa diimpor ke Modrinth App, Prism Launcher, dan ATLauncher. Mod diunduh langsung dari Modrinth saat diimpor.</p>
+      <button class="btn small ghost" id="btnClear" data-i18n="clear">Kosongkan pack</button>
+      <p class="hint" data-i18n="mrpackHint">File .mrpack bisa diimpor ke Modrinth App, Prism Launcher, dan ATLauncher. Mod diunduh langsung dari Modrinth saat diimpor.</p>
       <input type="file" id="file" accept=".json,application/json" hidden>
     </div>
   </section>
 </main>
 
-<footer class="page">Data mod, texture pack, dan shader berasal dari Modrinth. Reonzy MP Maker tidak berafiliasi dengan Mojang maupun Modrinth.</footer>
+<footer class="page" data-i18n="footer">Data mod, texture pack, dan shader berasal dari Modrinth. Reonzy MP Maker tidak berafiliasi dengan Mojang maupun Modrinth.</footer>
 
 <dialog id="verDialog"><div class="dlg" id="verBody"></div></dialog>
 
+<script src="lang.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>
