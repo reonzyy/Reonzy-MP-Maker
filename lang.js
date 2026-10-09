@@ -177,8 +177,8 @@ const I18N = {
   }
 };
 function tr(key, vars) {
-  const lang = (typeof S !== 'undefined' && S.lang) || 'id';
-  let s = (I18N[lang] && I18N[lang][key]) ?? I18N.id[key] ?? key;
+  const lang = (typeof S !== 'undefined' && S.lang) || 'en';
+  let s = (I18N[lang] && I18N[lang][key]) ?? I18N.en[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = String(s).replaceAll('{' + k + '}', v);
   return s;
 }

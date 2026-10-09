@@ -60,7 +60,7 @@ function el(tag, props = {}, ...kids) {
   }
   return e;
 }
-const locale = () => (typeof S !== 'undefined' && S.lang === 'en') ? 'en-US' : 'id-ID';
+const locale = () => (typeof S !== 'undefined' && S.lang === 'id') ? 'id-ID' : 'en-US';
 const fmtNum = n => new Intl.NumberFormat(locale(), { notation: 'compact' }).format(n || 0);
 const fmtDate = d => new Date(d).toLocaleDateString(locale(), { year: 'numeric', month: 'short', day: 'numeric' });
 const slugify = s => (s || 'modpack').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'modpack';
@@ -107,9 +107,9 @@ function cmpVer(a, b) {
 
 /* ---------- State ---------- */
 const S = {
-  lang: (() => { try { return localStorage.getItem(LANGKEY) || 'id'; } catch (e) { return 'id'; } })(),
+  lang: (() => { try { return localStorage.getItem(LANGKEY) || 'en'; } catch (e) { return 'en'; } })(),
   pixelFont: (() => { try { return localStorage.getItem(FONTKEY) !== 'off'; } catch (e) { return true; } })(),
-  name: 'Modpack Saya', packVer: '1.0.0',
+  name: 'My Modpack', packVer: '1.0.0',
   mc: '', loader: 'fabric', loaderVer: '',
   pref: 'auto', autoDeps: true, showSnap: false,
   mcList: [], loaderList: null,
@@ -974,10 +974,6 @@ function applyPixelFont() {
   document.body.dataset.font = S.pixelFont ? 'pixel' : 'std';
 }
 function syncSettingsUI() {
-  $('#langId').classList.toggle('on', S.lang === 'id');
-  $('#langEn').classList.toggle('on', S.lang === 'en');
-  $('#langId').setAttribute('aria-pressed', String(S.lang === 'id'));
-  $('#langEn').setAttribute('aria-pressed', String(S.lang === 'en'));
   const sid = $('#setLangId'), sen = $('#setLangEn');
   if (sid) {
     sid.classList.toggle('on', S.lang === 'id');
@@ -1009,8 +1005,6 @@ function bindSettings() {
   $('#settingsBtn').addEventListener('click', openSettings);
   $('#settingsClose').addEventListener('click', () => settingsDlg().close());
   settingsDlg().addEventListener('click', e => { if (e.target === settingsDlg()) settingsDlg().close(); });
-  $('#langId').addEventListener('click', () => setLang('id'));
-  $('#langEn').addEventListener('click', () => setLang('en'));
   $('#setLangId').addEventListener('click', () => setLang('id'));
   $('#setLangEn').addEventListener('click', () => setLang('en'));
   $('#fontToggle').addEventListener('click', () => setPixelFont(!S.pixelFont));
