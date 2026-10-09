@@ -1,6 +1,7 @@
 'use strict';
 /* ---------- Kamus bahasa ID / EN ---------- */
 const LANGKEY = 'reonzy-mp-maker-lang';
+const FONTKEY = 'reonzy-mp-maker-font';
 const I18N = {
   id: {
     tag: 'Pilih versi, pilih mod, unduh modpack.',
@@ -63,7 +64,30 @@ const I18N = {
     loadAllFail: 'Gagal memuat semua versi.',
     packMismatch: 'Versi ini tidak cocok dengan pengaturan pack. Pack bisa gagal jalan.',
     madeWith: 'Dibuat dengan Reonzy MP Maker', noVerYet: '(belum ada versi)',
-    defaultName: 'Modpack Saya'
+    defaultName: 'Modpack Saya',
+    cvAria: 'Konverter MRPack ke ZIP', cvTitle: 'Konverter .mrpack → .zip',
+    cvDesc: 'Unggah file .mrpack, klik konversi, browser akan mengunduh semua mod dari Modrinth lalu file ZIP langsung terunduh ke komputermu. Tanpa server.',
+    cvDropAria: 'Tarik file .mrpack ke sini atau klik untuk memilih',
+    cvDrop: 'Tarik & letakkan file .mrpack di sini', cvBrowse: 'Pilih file',
+    cvOptStruct: 'Pertahankan struktur folder (mods/, resourcepacks/, shaderpacks/)',
+    cvOptDl: 'Unduh file mod dari Modrinth (wajib agar ZIP bisa dipakai)',
+    cvOptNorm: 'Normalkan nama file (huruf kecil, spasi jadi strip)',
+    cvConvert: 'Konversi & unduh ZIP',
+    cvHint: 'Hasil ZIP berisi mod (.jar), resource pack, shader, dan file overrides — siap dipakai di launcher apa pun.',
+    cvNoFile: 'Pilih file .mrpack dulu.', cvBadFile: 'File ini bukan .mrpack yang valid (modrinth.index.json tidak ditemukan).',
+    cvNoIndex: 'modrinth.index.json tidak ditemukan di file ini.',
+    cvIndexBad: 'modrinth.index.json rusak dan tidak bisa dibaca.',
+    cvWorking: 'Memproses {name}…', cvFetching: 'Mengunduh {done}/{total} file…',
+    cvDone: 'ZIP terunduh ({n} file).', cvFail: 'Konversi gagal: {msg}',
+    cvNoDl: ' {n} file dilewati (unduhan dari Modrinth dimatikan).',
+    cvNoFiles: 'Tidak ada file di dalam .mrpack ini.',
+    selAll: 'Pilih semua', selItem: 'Pilih {title}',
+    delSel: 'Hapus yang dipilih ({n})',
+    confirmSelDel: 'Hapus {n} item yang dipilih dari pack?',
+    settings: 'Pengaturan', settingsTitle: 'Pengaturan',
+    setLangTitle: 'Bahasa', setFontTitle: 'Font pixel',
+    setFontToggleAria: 'Nyalakan atau matikan font pixel',
+    setFontHint: 'Matikan untuk memakai font standar yang lebih mudah dibaca di semua tulisan.'
   },
   en: {
     tag: 'Pick a version, pick mods, download the modpack.',
@@ -126,7 +150,30 @@ const I18N = {
     loadAllFail: 'Failed to load all versions.',
     packMismatch: 'This version does not match the pack settings. The pack may fail to run.',
     madeWith: 'Made with Reonzy MP Maker', noVerYet: '(no version yet)',
-    defaultName: 'My Modpack'
+    defaultName: 'My Modpack',
+    cvAria: 'MRPack to ZIP converter', cvTitle: '.mrpack → .zip converter',
+    cvDesc: 'Upload an .mrpack file, click convert, and your browser downloads every mod from Modrinth then saves the ZIP straight to your computer. No server needed.',
+    cvDropAria: 'Drop an .mrpack file here or click to choose one',
+    cvDrop: 'Drag & drop your .mrpack file here', cvBrowse: 'Browse files',
+    cvOptStruct: 'Keep folder structure (mods/, resourcepacks/, shaderpacks/)',
+    cvOptDl: 'Download mod files from Modrinth (required for a usable ZIP)',
+    cvOptNorm: 'Normalize filenames (lowercase, spaces to dashes)',
+    cvConvert: 'Convert & download ZIP',
+    cvHint: 'The resulting ZIP contains mods (.jar), resource packs, shaders, and override files — ready for any launcher.',
+    cvNoFile: 'Pick an .mrpack file first.', cvBadFile: 'This is not a valid .mrpack (modrinth.index.json not found).',
+    cvNoIndex: 'modrinth.index.json was not found in this file.',
+    cvIndexBad: 'modrinth.index.json is broken and could not be read.',
+    cvWorking: 'Processing {name}…', cvFetching: 'Downloading {done}/{total} files…',
+    cvDone: 'ZIP downloaded ({n} files).', cvFail: 'Conversion failed: {msg}',
+    cvNoDl: ' {n} files skipped (downloading from Modrinth is off).',
+    cvNoFiles: 'There are no files inside this .mrpack.',
+    selAll: 'Select all', selItem: 'Select {title}',
+    delSel: 'Delete selected ({n})',
+    confirmSelDel: 'Remove {n} selected items from the pack?',
+    settings: 'Settings', settingsTitle: 'Settings',
+    setLangTitle: 'Language', setFontTitle: 'Pixel font',
+    setFontToggleAria: 'Turn the pixel font on or off',
+    setFontHint: 'Turn off to use the standard font, easier to read everywhere.'
   }
 };
 function tr(key, vars) {

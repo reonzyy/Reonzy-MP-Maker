@@ -108,6 +108,7 @@ function cmpVer(a, b) {
 /* ---------- State ---------- */
 const S = {
   lang: (() => { try { return localStorage.getItem(LANGKEY) || 'id'; } catch (e) { return 'id'; } })(),
+  pixelFont: (() => { try { return localStorage.getItem(FONTKEY) !== 'off'; } catch (e) { return true; } })(),
   name: 'Modpack Saya', packVer: '1.0.0',
   mc: '', loader: 'fabric', loaderVer: '',
   pref: 'auto', autoDeps: true, showSnap: false,
@@ -481,14 +482,18 @@ function renderResults() {
           el('span', { text: fmtNum(h.downloads) + ' ' + tr('downloads') }),
           h.latest_version ? el('span', { text: tr('latest') + h.latest_version }) : null,
           el('a', { href: 'https://modrinth.com/' + t.path + '/' + h.slug, target: '_blank', rel: 'noopener', text: tr('viewModrinth') }))),
-      inPack
-        ? el('div', { class: 'inpack' },
-          el('span', { class: 'have', title: tr('added'), 'aria-label': tr('added'), text: '✓' }),
-          el('button', {
-            class: 'unadd', title: tr('remove', { title: h.title }), 'aria-label': tr('remove', { title: h.title }),
-            onclick: () => removeItem({ id: h.project_id }), text: '✕'
-          }))
-        : el('button', { class: 'btn add', onclick: () => addItem(h), text: tr('add') })));
+      el('button', {
+        type: 'button',
+        class: 'toggle' + (inPack ? ' on' : ''),
+        role: 'switch',
+        'aria-checked': String(inPack),
+        title: inPack ? tr('remove', { title: h.title }) : tr('add'),
+        'aria-label': inPack ? tr('remove', { title: h.title }) : tr('add') + ': ' + h.title,
+        onclick: () => inPack ? removeItem({ id: h.project_id }) : addItem(h)
+      },
+        el('span', { class: 't-ico t-off', text: '✕' }),
+        el('span', { class: 't-ico t-on', text: '✓' }),
+        el('span', { class: 'knob' }))));
   }
   more.hidden = S.results.length >= S.total;
   more.disabled = S.searching;
@@ -525,6 +530,27 @@ function packState(item) {
   const v = selVersion(item);
   if (!v || !v.matches) return { cls: 'bad' };
   return { cls: v.type === 'release' ? 'ok' : 'warn' };
+}
+/* ---------- Daftar pilihan (checkbox pack) ---------- */
+const SEL = new Set();
+function selCount() { return S.items.filter(i => SEL.has(i.id)).length; }
+function renderPackSel() {
+  const n = selCount();
+  const bar = $('#selBar'), btn = $('#btnSelDel'), all = $('#selAll');
+  if (bar) bar.hidden = S.items.length === 0;
+  if (btn) { btn.disabled = n === 0; btn.textContent = tr('delSel', { n }); }
+  if (all) {
+    all.checked = S.items.length > 0 && n === S.items.length;
+    all.indeterminate = n > 0 && n < S.items.length;
+  }
+}
+function removeSelected() {
+  const n = selCount();
+  if (!n) return;
+  if (!confirm(tr('confirmSelDel', { n }))) return;
+  S.items = S.items.filter(i => !SEL.has(i.id));
+  SEL.clear();
+  renderPack(); renderPackSel(); renderResults(); save();
 }
 function packRow(item) {
   const st = packState(item);
@@ -591,6 +617,12 @@ function packRow(item) {
   }
 
   return el('div', { class: 'pitem ' + st.cls, 'data-id': item.id },
+    el('label', { class: 'psel' },
+      el('input', {
+        type: 'checkbox', checked: SEL.has(item.id) || undefined,
+        'aria-label': tr('selItem', { title: item.title }),
+        onchange: e => { e.target.checked ? SEL.add(item.id) : SEL.delete(item.id); renderPackSel(); }
+      })),
     icon(item.icon, item.title, true), body,
     el('button', { class: 'x', title: tr('remove', { title: item.title }), 'aria-label': tr('remove', { title: item.title }), onclick: () => removeItem(item), text: '×' }));
 }
@@ -624,6 +656,7 @@ function renderPack() {
   if (!S.items.length) {
     box.append(el('div', { class: 'empty', text: tr('emptyPack') }));
   }
+  renderPackSel();
   const parts = [];
   if (S.items.length) {
     parts.push(S.items.length + ' ' + tr('sumItem'));
@@ -755,6 +788,108 @@ async function exportMrpack() {
   toast(msg, pending || bad ? 'bad' : 'ok');
 }
 
+/* ---------- Konverter .mrpack → .zip (100% di browser) ----------
+   Alur seperti mrpacktozip.com: baca .mrpack (ZIP berisi modrinth.index.json),
+   salin overrides/client-overrides/server-overrides, unduh tiap file dari URL
+   Modrinth, lalu kemas ulang jadi ZIP biasa dan langsung terunduh. */
+let cvFile = null;
+function cvNormName(p) {
+  return p.split('/').map(seg => seg.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/-+/g, '-')).join('/');
+}
+function cvSetStatus(txt, frac) {
+  $('#cvStatus').textContent = txt || '';
+  if (typeof frac === 'number') $('#cvBar').style.width = Math.round(frac * 100) + '%';
+}
+async function cvFetchBlob(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.blob();
+}
+function cvPickFile(f) {
+  cvFile = f || null;
+  $('#cvFileName').textContent = cvFile ? cvFile.name + ' (' + (cvFile.size / 1048576).toFixed(2) + ' MB)' : '';
+  $('#cvConvert').disabled = !cvFile;
+}
+async function convertMrpackToZip() {
+  if (!cvFile) { toast(tr('cvNoFile'), 'bad'); return; }
+  if (!window.JSZip) { toast(tr('zipNotReady'), 'bad'); return; }
+  const btn = $('#cvConvert');
+  btn.disabled = true;
+  $('#cvProg').hidden = false;
+  try {
+    cvSetStatus(tr('cvWorking', { name: cvFile.name }), 0);
+    const src = await JSZip.loadAsync(cvFile);
+    const idxFile = src.file('modrinth.index.json');
+    if (!idxFile) throw new Error(tr('cvNoIndex'));
+    let index;
+    try { index = JSON.parse(await idxFile.async('string')); }
+    catch (e) { throw new Error(tr('cvIndexBad')); }
+    const entries = Array.isArray(index.files) ? index.files : [];
+    if (!entries.length && !Object.keys(src.files).some(p => /^overrides\//.test(p) || /^client-overrides\//.test(p) || /^server-overrides\//.test(p))) {
+      throw new Error(tr('cvNoFiles'));
+    }
+    const keepStruct = $('#cvStruct').checked;
+    const doDl = $('#cvDl').checked;
+    const doNorm = $('#cvNorm').checked;
+    const out = new JSZip();
+    // 1) Salin overrides langsung dari .mrpack (strip prefix overrides/)
+    const ovPrefixes = ['client-overrides/', 'server-overrides/', 'overrides/'];
+    for (const [path, zf] of Object.entries(src.files)) {
+      if (zf.dir) continue;
+      if (path === 'modrinth.index.json') continue;
+      const pre = ovPrefixes.find(p => path.startsWith(p));
+      if (!pre) continue;
+      const rel = path.slice(pre.length);
+      if (!rel) continue;
+      out.file(doNorm ? cvNormName(rel) : rel, await zf.async('blob'));
+    }
+    // 2) Unduh file-file dari Modrinth lalu taruh di foldernya
+    let done = 0, packed = out.file(/^/).length, skipped = 0;
+    const total = entries.length;
+    await pool(entries, 6, async (f) => {
+      const rawPath = String(f.path || '').replace(/^\/+/, '');
+      if (!rawPath) { skipped++; return; }
+      const target = keepStruct ? rawPath : rawPath.split('/').pop();
+      const name = doNorm ? cvNormName(target) : target;
+      const url = f.downloads && f.downloads[0];
+      if (!doDl || !url) { skipped++; return; }
+      try {
+        out.file(name, await cvFetchBlob(url));
+        packed++;
+      } catch (e) { skipped++; }
+      done++;
+      cvSetStatus(tr('cvFetching', { done, total }), total ? (done / total) * 0.9 : 0.9);
+    });
+    cvSetStatus(tr('cvFetching', { done: total, total }), 0.95);
+    const base = (index.name || cvFile.name.replace(/\.mrpack$/i, '') || 'modpack');
+    const blob = await out.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    download(blob, slugify(base) + '.zip');
+    cvSetStatus('', 1);
+    let msg = tr('cvDone', { n: packed });
+    if (skipped) msg += tr('cvNoDl', { n: skipped });
+    toast(msg, skipped ? 'bad' : 'ok');
+  } catch (e) {
+    toast(tr('cvFail', { msg: e.message || e }), 'bad');
+    cvSetStatus(tr('cvFail', { msg: e.message || e }), 0);
+  }
+  btn.disabled = !cvFile;
+}
+function bindConverter() {
+  const drop = $('#cvDrop'), input = $('#cvFile');
+  if (!drop || !input) return;
+  $('#cvBrowse').addEventListener('click', e => { e.stopPropagation(); input.click(); });
+  drop.addEventListener('click', () => input.click());
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+  input.addEventListener('change', e => { cvPickFile(e.target.files[0]); e.target.value = ''; });
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) cvPickFile(f);
+  });
+  $('#cvConvert').addEventListener('click', convertMrpackToZip);
+}
+
 function listText() {
   const out = [S.name + ' ' + S.packVer, 'Minecraft ' + S.mc + ', ' + LOADERS[S.loader].label + ' ' + S.loaderVer, ''];
   for (const type of Object.keys(TYPES)) {
@@ -834,8 +969,56 @@ function setPack(open) {
   $('#menuBtn').setAttribute('aria-expanded', String(document.body.classList.contains('side-open')));
   syncScrim();
 }
+/* ---------- Pengaturan: bahasa & font pixel ---------- */
+function applyPixelFont() {
+  document.body.dataset.font = S.pixelFont ? 'pixel' : 'std';
+}
+function syncSettingsUI() {
+  $('#langId').classList.toggle('on', S.lang === 'id');
+  $('#langEn').classList.toggle('on', S.lang === 'en');
+  $('#langId').setAttribute('aria-pressed', String(S.lang === 'id'));
+  $('#langEn').setAttribute('aria-pressed', String(S.lang === 'en'));
+  const sid = $('#setLangId'), sen = $('#setLangEn');
+  if (sid) {
+    sid.classList.toggle('on', S.lang === 'id');
+    sid.setAttribute('aria-pressed', String(S.lang === 'id'));
+  }
+  if (sen) {
+    sen.classList.toggle('on', S.lang === 'en');
+    sen.setAttribute('aria-pressed', String(S.lang === 'en'));
+  }
+  const ft = $('#fontToggle');
+  if (ft) {
+    ft.classList.toggle('on', S.pixelFont);
+    ft.setAttribute('aria-checked', String(S.pixelFont));
+  }
+}
+function setPixelFont(on) {
+  S.pixelFont = !!on;
+  try { localStorage.setItem(FONTKEY, S.pixelFont ? 'on' : 'off'); } catch (e) { /* abaikan */ }
+  applyPixelFont();
+  syncSettingsUI();
+}
+const settingsDlg = () => $('#settingsDialog');
+function openSettings() {
+  syncSettingsUI();
+  const d = settingsDlg();
+  if (d && !d.open) d.showModal();
+}
+function bindSettings() {
+  $('#settingsBtn').addEventListener('click', openSettings);
+  $('#settingsClose').addEventListener('click', () => settingsDlg().close());
+  settingsDlg().addEventListener('click', e => { if (e.target === settingsDlg()) settingsDlg().close(); });
+  $('#langId').addEventListener('click', () => setLang('id'));
+  $('#langEn').addEventListener('click', () => setLang('en'));
+  $('#setLangId').addEventListener('click', () => setLang('id'));
+  $('#setLangEn').addEventListener('click', () => setLang('en'));
+  $('#fontToggle').addEventListener('click', () => setPixelFont(!S.pixelFont));
+}
 function applyStaticLang() {
   document.documentElement.lang = S.lang;
+  applyPixelFont();
+  syncSettingsUI();
   const meta = document.querySelector('meta[name="description"]');
   if (meta) meta.setAttribute('content', tr('desc'));
   document.querySelectorAll('[data-i18n]').forEach(elm => {
@@ -847,10 +1030,7 @@ function applyStaticLang() {
   document.querySelectorAll('[data-i18n-aria]').forEach(elm => {
     elm.setAttribute('aria-label', tr(elm.dataset.i18nAria));
   });
-  $('#langId').classList.toggle('on', S.lang === 'id');
-  $('#langEn').classList.toggle('on', S.lang === 'en');
-  $('#langId').setAttribute('aria-pressed', String(S.lang === 'id'));
-  $('#langEn').setAttribute('aria-pressed', String(S.lang === 'en'));
+  syncSettingsUI();
 }
 function setLang(lang) {
   if (lang !== 'id' && lang !== 'en') return;
@@ -878,10 +1058,9 @@ function bind() {
   $('#packClose').addEventListener('click', () => setPack(false));
   $('#scrim').addEventListener('click', () => { setSide(false); setPack(false); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { setSide(false); setPack(false); } });
+  bindSettings();
   $('#packBtn').addEventListener('click', () => setPack(!document.body.classList.contains('pack-open')));
   window.matchMedia('(min-width: 1181px)').addEventListener('change', e => { if (e.matches) { setSide(false); setPack(false); } });
-  $('#langId').addEventListener('click', () => setLang('id'));
-  $('#langEn').addEventListener('click', () => setLang('en'));
   // loader
   const lw = $('#loaders');
   for (const [k, l] of Object.entries(LOADERS)) {
@@ -938,6 +1117,15 @@ function bind() {
   });
   $('#more').addEventListener('click', () => runSearch(false));
   $('#btnMrpack').addEventListener('click', exportMrpack);
+  bindConverter();
+  const selAll = $('#selAll');
+  if (selAll) selAll.addEventListener('change', e => {
+    if (e.target.checked) S.items.forEach(i => SEL.add(i.id));
+    else SEL.clear();
+    renderPack(); renderPackSel();
+  });
+  const selDel = $('#btnSelDel');
+  if (selDel) selDel.addEventListener('click', removeSelected);
   $('#btnCopy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(listText()); toast(tr('copied'), 'ok'); }
     catch (e) { toast(tr('clipDeny'), 'bad'); }

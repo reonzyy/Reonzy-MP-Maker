@@ -26,8 +26,8 @@ button{cursor:pointer}
 [hidden]{display:none!important}
 
 header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;padding:18px 24px;border-bottom:1px solid var(--line)}
-.logo{font-family:'Pixelify Sans',ui-monospace,monospace;font-weight:700;font-size:28px;letter-spacing:.5px;margin:0;display:flex;align-items:center;gap:12px}
-.logo i{display:inline-block;width:22px;height:22px;background:var(--ok);box-shadow:inset 7px 7px 0 rgba(255,255,255,.35),inset -4px -4px 0 rgba(0,0,0,.25);border:2px solid var(--brand)}
+.logo{font-family:'Minecraftia','Pixelify Sans',ui-monospace,monospace;font-weight:400;font-size:22px;letter-spacing:.5px;margin:0;display:flex;align-items:center;gap:12px}
+.logo-img{width:32px;height:32px;border-radius:8px;object-fit:contain;flex-shrink:0;image-rendering:pixelated}
 .tag{margin:0;color:var(--muted)}
 
 #notice{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:50;max-width:min(92vw,520px);padding:10px 16px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s}
@@ -143,7 +143,7 @@ select{appearance:auto}
 .list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
 .card{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:start;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius)}
 .card.in{border-color:var(--ok-line);background:var(--ok-bg)}
-.ico{width:52px;height:52px;border-radius:8px;background:var(--line);object-fit:cover;display:grid;place-items:center;font-family:'Pixelify Sans',monospace;font-size:22px;color:var(--muted);overflow:hidden}
+.ico{width:52px;height:52px;border-radius:8px;background:var(--line);object-fit:cover;display:grid;place-items:center;font-family:'Minecraftia',monospace;font-size:18px;color:var(--muted);overflow:hidden}
 .ico.sm{width:36px;height:36px;font-size:16px;border-radius:6px}
 .card h3{margin:0;font-size:16px;line-height:1.3}
 .card h3 small{font-weight:400;color:var(--muted);font-size:13px;margin-left:6px}
@@ -157,17 +157,22 @@ select{appearance:auto}
 .btn.small{padding:5px 10px;font-size:13px}
 .btn.ghost{background:transparent}
 .btn:disabled{cursor:default}
-.card .btn.add{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
-.card .btn.add{justify-self:end;align-self:start}
-.inpack{display:flex;gap:8px;align-items:center;justify-self:end;align-self:start}
-.unadd{width:34px;height:34px;border-radius:50%;border:1px solid var(--bad);background:var(--bad-bg);color:var(--bad);font-size:17px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0}
-.unadd:hover{background:var(--bad);color:#fff}
-.have{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:var(--ok);border:1px solid var(--ok-line);background:var(--ok-bg);cursor:default}
+.card .toggle{justify-self:end;align-self:start}
+/* ---------- Toggle tambah / hapus (1 tombol: ✕ kiri | ✓ kanan) ---------- */
+.toggle{position:relative;width:64px;height:32px;border-radius:99px;border:1px solid var(--line);background:var(--panel);cursor:pointer;padding:0 9px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;transition:background .18s,border-color .18s}
+.toggle .t-ico{font-size:13px;font-weight:700;line-height:1;z-index:1;pointer-events:none}
+.toggle .t-off{color:var(--muted)}
+.toggle .t-on{color:var(--muted);opacity:.45}
+.toggle .knob{position:absolute;top:2px;left:2px;width:26px;height:26px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);box-shadow:0 1px 4px rgba(0,0,0,.35);transition:left .18s,background .18s,border-color .18s;z-index:2}
+.toggle:not(.on):hover{border-color:var(--brand)}
+.toggle.on{background:var(--ok-bg);border-color:var(--ok-line)}
+.toggle.on .t-off{opacity:.4}
+.toggle.on .t-on{color:var(--ok);opacity:1}
+.toggle.on .knob{left:34px;background:var(--ok);border-color:var(--ok)}
 @media (max-width:520px){
   .card{grid-template-columns:44px minmax(0,1fr)}
   .card .ico{width:44px;height:44px}
-  .card .btn.add{grid-column:1/-1;justify-self:stretch}
-  .inpack{grid-column:1/-1;justify-self:end}
+  .card .toggle{grid-column:1/-1;justify-self:end}
 }
 .skel{height:78px;border-radius:var(--radius);background:var(--panel2)}
 @media (prefers-reduced-motion:no-preference){
@@ -180,7 +185,15 @@ select{appearance:auto}
 .sum{color:var(--muted);font-size:13.5px;margin:-4px 0 12px}
 .grp{margin:14px 0 6px;font-weight:600;font-size:14px;display:flex;justify-content:space-between}
 .grp span{color:var(--muted);font-weight:400}
-.pitem{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px;margin:0 0 8px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);border-left-width:4px}
+.pitem{display:grid;grid-template-columns:auto 36px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px;margin:0 0 8px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);border-left-width:4px}
+.psel{display:flex;align-items:flex-start;padding-top:3px;cursor:pointer}
+.psel input{width:17px;height:17px;margin:0;accent-color:var(--brand);cursor:pointer}
+.selbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;background:var(--panel)}
+.selsel{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;cursor:pointer}
+.selsel input{width:17px;height:17px;margin:0;accent-color:var(--brand);cursor:pointer}
+.btn.danger{border-color:var(--bad);color:var(--bad)}
+.btn.danger:hover:not(:disabled){background:var(--bad);color:#fff}
+.btn.danger:disabled{opacity:.5;cursor:not-allowed}
 .pitem.ok{background:var(--ok-bg);border-color:var(--ok-line);border-left-color:var(--ok)}
 .pitem.warn{background:var(--warn-bg);border-color:var(--warn);border-left-color:var(--warn)}
 .pitem.bad{background:var(--bad-bg);border-color:var(--bad);border-left-color:var(--bad)}
@@ -222,6 +235,29 @@ header.top{align-items:center}
 .lang button{border:0;background:transparent;color:var(--muted);font-weight:700;font-size:13px;padding:6px 14px;border-radius:99px;line-height:1.2}
 .lang button:hover{color:var(--text)}
 .lang button.on{background:var(--brand);color:var(--brand-ink)}
+.settingsbtn{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:40px;height:40px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);font-size:19px;line-height:1}
+.settingsbtn:hover{border-color:var(--brand);transform:rotate(25deg)}
+.settingsbtn{transition:transform .2s,border-color .2s}
+
+/* ---------- Dialog pengaturan ---------- */
+.dlg.settings{min-width:min(440px,calc(100vw - 48px))}
+.setbody{padding:0 16px 16px;display:grid;gap:16px}
+.setgroup h3{margin:0 0 8px;font-size:15px}
+.setgroup .hint{margin:8px 0 0}
+.sethead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sethead h3{margin:0}
+.seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:3px;gap:2px}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);font-weight:700;font-size:13px;padding:8px 14px;border-radius:99px;line-height:1.2}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--brand);color:var(--brand-ink)}
+#fontToggle .t-off{font-family:'Figtree',system-ui,sans-serif;font-weight:600}
+#fontToggle .t-on{font-family:'Minecraftia',monospace;font-weight:400}
+
+/* ---------- Mode font standar ---------- */
+body[data-font="std"] .logo{font-family:'Figtree',system-ui,-apple-system,'Segoe UI',sans-serif;font-weight:700;font-size:24px;letter-spacing:0}
+body[data-font="std"] h2{font-family:'Figtree',system-ui,-apple-system,'Segoe UI',sans-serif;font-weight:700}
+body[data-font="std"] .ico{font-family:'Figtree',system-ui,sans-serif}
+body[data-font="std"] #fontToggle .t-on{font-family:'Figtree',system-ui,sans-serif;font-weight:600}
 @media (max-width:780px){
   .lang{align-self:flex-end}
 }
@@ -233,3 +269,16 @@ header.top{align-items:center}
 .req span:first-child{font-weight:600;overflow-wrap:anywhere}
 .req .btn{margin-left:auto}
 .req.opt{opacity:.8}
+
+/* ---------- Konverter .mrpack → .zip ---------- */
+.convert{grid-column:1/-1}
+.cvdrop{margin:10px 0;border:2px dashed var(--line);border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;transition:border-color .18s,background .18s}
+.cvdrop p{margin:6px 0}
+.cvdrop:hover,.cvdrop:focus-visible,.cvdrop.over{border-color:var(--brand);background:var(--panel2)}
+.cvfile{overflow-wrap:anywhere;font-weight:600;color:var(--text)}
+.cvopts{display:grid;gap:2px;margin:4px 0 12px}
+.cvopts .check{margin:0 0 6px}
+.cvprog{margin-top:12px}
+.bar{height:10px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}
+.bar span{display:block;height:100%;width:0;background:var(--brand);border-radius:99px;transition:width .2s}
+#cvStatus{margin-top:8px}

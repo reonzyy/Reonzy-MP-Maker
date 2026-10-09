@@ -1,122 +1,348 @@
-﻿<!DOCTYPE html>
+﻿<!doctype html>
 <html lang="id">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reonzy MP Maker</title>
-<meta name="description" content="Susun modpack Minecraft: pilih versi, loader, mod, texture pack, dan shader. Versi yang cocok ditandai otomatis.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%236c8cff'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%2343c474'/%3E%3Crect x='3' y='3' width='5' height='5' fill='%23fff' fill-opacity='.35'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<link rel="stylesheet" href="styles.css">
-</head>
-<body>
-
-<header class="top">
-  <button type="button" id="menuBtn" class="menubtn" data-i18n-aria="menu" aria-label="Menu" aria-expanded="false" aria-controls="sidePanel">☰</button>
-  <div class="brand">
-    <h1 class="logo"><i aria-hidden="true"></i>Reonzy MP Maker</h1>
-    <p class="tag" data-i18n="tag">Pilih versi, pilih mod, unduh modpack.</p>
-  </div>
-  <button type="button" id="packBtn" class="packbtn" data-i18n-aria="packAria" aria-label="Isi modpack" aria-expanded="false" aria-controls="packPanel"><span data-i18n="packBtn">Pack</span><b id="packCount">0</b></button>
-  <div class="lang" role="group" aria-label="Bahasa / Language">
-    <button type="button" id="langId" aria-pressed="true">ID</button>
-    <button type="button" id="langEn" aria-pressed="false">EN</button>
-  </div>
-</header>
-
-<div id="scrim" hidden></div>
-
-<div id="notice" role="status" aria-live="polite"></div>
-
-<main class="app">
-  <!-- Pengaturan -->
-  <aside class="panel side" id="sidePanel" aria-label="Pengaturan modpack" data-i18n-aria="cfgAria">
-    <div class="sidehead">
-      <h2 data-i18n="cfgTitle">Pengaturan pack</h2>
-      <button type="button" id="sideClose" class="x" data-i18n-aria="close" aria-label="Tutup">×</button>
-    </div>
-
-    <div class="row2 field">
-      <label><span style="display:block;font-weight:600;margin-bottom:5px" data-i18n="packName">Nama modpack</span><input type="text" id="name" maxlength="60" autocomplete="off"></label>
-      <label><span style="display:block;font-weight:600;margin-bottom:5px" data-i18n="packVer">Versi</span><input type="text" id="packVer" maxlength="20" autocomplete="off"></label>
-    </div>
-
-    <label class="field"><span data-i18n="mcVer">Versi Minecraft</span>
-      <select id="mc"></select>
-    </label>
-    <label class="check"><input type="checkbox" id="snap"><span data-i18n="snap">Tampilkan snapshot dan versi pra-rilis</span></label>
-
-    <fieldset class="field"><legend data-i18n="loader">Mod loader</legend>
-      <div class="loaders" id="loaders"></div>
-      <p class="hint" id="loaderHint"></p>
-    </fieldset>
-
-    <label class="field"><span data-i18n="loaderVer">Versi loader</span>
-      <select id="lv"></select>
-      <input type="text" id="lvManual" data-i18n-ph="lvManualPh" placeholder="Ketik versi loader" hidden>
-      <p class="hint" id="lvHint"></p>
-    </label>
-
-    <label class="field"><span data-i18n="pickMode">Cara memilih versi mod</span>
-      <select id="pref">
-        <option value="auto" data-i18n="prefAuto">Utamakan release stabil, lalu beta, lalu alpha</option>
-        <option value="newest" data-i18n="prefNewest">Selalu yang paling baru</option>
-      </select>
-    </label>
-    <label class="check"><input type="checkbox" id="deps"><span data-i18n="deps">Tambahkan mod pendukung yang wajib (misalnya Fabric API) secara otomatis</span></label>
-
-    <div class="legend" aria-label="Arti warna" data-i18n-aria="legendAria">
-      <div><span class="sw ok"></span><span data-i18n="lgOk">Hijau: versi cocok dengan Minecraft dan loader</span></div>
-      <div><span class="sw warn"></span><span data-i18n="lgWarn">Kuning: cocok, tetapi hanya beta atau alpha</span></div>
-      <div><span class="sw bad"></span><span data-i18n="lgBad">Merah: tidak ada versi yang cocok</span></div>
-    </div>
-  </aside>
-
-  <!-- Cari -->
-  <section class="panel browse" aria-label="Cari konten" data-i18n-aria="browseAria">
-    <h2 data-i18n="browseTitle">Cari konten</h2>
-    <div class="tabs" role="tablist" id="tabs"></div>
-    <label class="field" style="margin-bottom:0"><span class="sr" style="position:absolute;left:-9999px" data-i18n="searchSr">Cari</span>
-      <input type="search" id="q" data-i18n-ph="searchPh" placeholder="Cari nama, misalnya sodium atau complementary" autocomplete="off">
-    </label>
-    <div class="tags" id="tags" aria-label="Filter tag"></div>
-    <p class="hint" id="tabHint"></p>
-    <div class="resinfo" id="resInfo"></div>
-    <ul class="list" id="results"></ul>
-    <button class="btn more" id="more" hidden data-i18n="more">Muat lebih banyak</button>
-  </section>
-
-  <!-- Isi pack -->
-  <section class="panel packcol" id="packPanel" aria-label="Isi modpack" data-i18n-aria="packAria">
-    <div class="packhead">
-      <h2 data-i18n="packTitle">Isi modpack</h2>
-      <button type="button" id="packClose" class="x" data-i18n-aria="close" aria-label="Tutup">×</button>
-    </div>
-    <p class="sum" id="sum"></p>
-    <div id="pack"></div>
-    <div class="actions">
-      <button class="btn primary" id="btnMrpack" data-i18n="dlMrpack">Unduh modpack (.mrpack)</button>
-      <div class="row">
-        <button class="btn small" id="btnCopy" data-i18n="copy">Salin daftar</button>
-        <button class="btn small" id="btnSave" data-i18n="save">Simpan proyek</button>
-        <button class="btn small" id="btnOpen" data-i18n="open">Buka proyek</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reonzy MP Maker</title>
+    <meta
+      name="description"
+      content="Susun modpack Minecraft: pilih versi, loader, mod, texture pack, dan shader. Versi yang cocok ditandai otomatis."
+    />
+    <link rel="icon" href="favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link href="https://fonts.cdnfonts.com/css/minecraftia" rel="stylesheet" />
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+      defer
+    ></script>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <button
+        type="button"
+        id="menuBtn"
+        class="menubtn"
+        data-i18n-aria="menu"
+        aria-label="Menu"
+        aria-expanded="false"
+        aria-controls="sidePanel"
+      >
+        ☰
+      </button>
+      <div class="brand">
+        <h1 class="logo"><img src="favicon.ico" alt="" aria-hidden="true" class="logo-img" width="32" height="32" />Reonzy MP Maker</h1>
+        <p class="tag" data-i18n="tag">
+          Pilih versi, pilih mod, unduh modpack.
+        </p>
       </div>
-      <button class="btn small ghost" id="btnClear" data-i18n="clear">Kosongkan pack</button>
-      <p class="hint" data-i18n="mrpackHint">File .mrpack bisa diimpor ke Modrinth App, Prism Launcher, dan ATLauncher. Mod diunduh langsung dari Modrinth saat diimpor.</p>
-      <input type="file" id="file" accept=".json,application/json" hidden>
-    </div>
-  </section>
-</main>
+      <button
+        type="button"
+        id="packBtn"
+        class="packbtn"
+        data-i18n-aria="packAria"
+        aria-label="Isi modpack"
+        aria-expanded="false"
+        aria-controls="packPanel"
+      >
+        <span data-i18n="packBtn">Pack</span><b id="packCount">0</b>
+      </button>
+      <div class="lang" role="group" aria-label="Bahasa / Language">
+        <button type="button" id="langId" aria-pressed="true">ID</button>
+        <button type="button" id="langEn" aria-pressed="false">EN</button>
+      </div>
+      <button
+        type="button"
+        id="settingsBtn"
+        class="settingsbtn"
+        data-i18n-aria="settings"
+        aria-label="Pengaturan"
+        aria-haspopup="dialog"
+      >
+        ⚙
+      </button>
+    </header>
 
-<footer class="page" data-i18n="footer">Data mod, texture pack, dan shader berasal dari Modrinth. Reonzy MP Maker tidak berafiliasi dengan Mojang maupun Modrinth.</footer>
+    <div id="scrim" hidden></div>
 
-<dialog id="verDialog"><div class="dlg" id="verBody"></div></dialog>
+    <div id="notice" role="status" aria-live="polite"></div>
 
-<script src="lang.js" defer></script>
-<script src="app.js" defer></script>
-</body>
+    <main class="app">
+      <!-- Pengaturan -->
+      <aside
+        class="panel side"
+        id="sidePanel"
+        aria-label="Pengaturan modpack"
+        data-i18n-aria="cfgAria"
+      >
+        <div class="sidehead">
+          <h2 data-i18n="cfgTitle">Pengaturan pack</h2>
+          <button
+            type="button"
+            id="sideClose"
+            class="x"
+            data-i18n-aria="close"
+            aria-label="Tutup"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="row2 field">
+          <label
+            ><span
+              style="display: block; font-weight: 600; margin-bottom: 5px"
+              data-i18n="packName"
+              >Nama modpack</span
+            ><input type="text" id="name" maxlength="60" autocomplete="off"
+          /></label>
+          <label
+            ><span
+              style="display: block; font-weight: 600; margin-bottom: 5px"
+              data-i18n="packVer"
+              >Versi</span
+            ><input type="text" id="packVer" maxlength="20" autocomplete="off"
+          /></label>
+        </div>
+
+        <label class="field"
+          ><span data-i18n="mcVer">Versi Minecraft</span>
+          <select id="mc"></select>
+        </label>
+        <label class="check"
+          ><input type="checkbox" id="snap" /><span data-i18n="snap"
+            >Tampilkan snapshot dan versi pra-rilis</span
+          ></label
+        >
+
+        <fieldset class="field">
+          <legend data-i18n="loader">Mod loader</legend>
+          <div class="loaders" id="loaders"></div>
+          <p class="hint" id="loaderHint"></p>
+        </fieldset>
+
+        <label class="field"
+          ><span data-i18n="loaderVer">Versi loader</span>
+          <select id="lv"></select>
+          <input
+            type="text"
+            id="lvManual"
+            data-i18n-ph="lvManualPh"
+            placeholder="Ketik versi loader"
+            hidden
+          />
+          <p class="hint" id="lvHint"></p>
+        </label>
+
+        <label class="field"
+          ><span data-i18n="pickMode">Cara memilih versi mod</span>
+          <select id="pref">
+            <option value="auto" data-i18n="prefAuto">
+              Utamakan release stabil, lalu beta, lalu alpha
+            </option>
+            <option value="newest" data-i18n="prefNewest">
+              Selalu yang paling baru
+            </option>
+          </select>
+        </label>
+        <label class="check"
+          ><input type="checkbox" id="deps" /><span data-i18n="deps"
+            >Tambahkan mod pendukung yang wajib (misalnya Fabric API) secara
+            otomatis</span
+          ></label
+        >
+
+        <div class="legend" aria-label="Arti warna" data-i18n-aria="legendAria">
+          <div>
+            <span class="sw ok"></span
+            ><span data-i18n="lgOk"
+              >Hijau: versi cocok dengan Minecraft dan loader</span
+            >
+          </div>
+          <div>
+            <span class="sw warn"></span
+            ><span data-i18n="lgWarn"
+              >Kuning: cocok, tetapi hanya beta atau alpha</span
+            >
+          </div>
+          <div>
+            <span class="sw bad"></span
+            ><span data-i18n="lgBad">Merah: tidak ada versi yang cocok</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Cari -->
+      <section
+        class="panel browse"
+        aria-label="Cari konten"
+        data-i18n-aria="browseAria"
+      >
+        <h2 data-i18n="browseTitle">Cari konten</h2>
+        <div class="tabs" role="tablist" id="tabs"></div>
+        <label class="field" style="margin-bottom: 0"
+          ><span
+            class="sr"
+            style="position: absolute; left: -9999px"
+            data-i18n="searchSr"
+            >Cari</span
+          >
+          <input
+            type="search"
+            id="q"
+            data-i18n-ph="searchPh"
+            placeholder="Cari nama, misalnya sodium atau complementary"
+            autocomplete="off"
+          />
+        </label>
+        <div class="tags" id="tags" aria-label="Filter tag"></div>
+        <p class="hint" id="tabHint"></p>
+        <div class="resinfo" id="resInfo"></div>
+        <ul class="list" id="results"></ul>
+        <button class="btn more" id="more" hidden data-i18n="more">
+          Muat lebih banyak
+        </button>
+      </section>
+
+      <!-- Isi pack -->
+      <section
+        class="panel packcol"
+        id="packPanel"
+        aria-label="Isi modpack"
+        data-i18n-aria="packAria"
+      >
+        <div class="packhead">
+          <h2 data-i18n="packTitle">Isi modpack</h2>
+          <button
+            type="button"
+            id="packClose"
+            class="x"
+            data-i18n-aria="close"
+            aria-label="Tutup"
+          >
+            ×
+          </button>
+        </div>
+        <p class="sum" id="sum"></p>
+        <div class="selbar" id="selBar" hidden>
+          <label class="selsel"><input type="checkbox" id="selAll" /><span data-i18n="selAll">Pilih semua</span></label>
+          <button type="button" class="btn small danger" id="btnSelDel" data-i18n="delSel" disabled>Hapus yang dipilih (0)</button>
+        </div>
+        <div id="pack"></div>
+        <div class="actions">
+          <button class="btn primary" id="btnMrpack" data-i18n="dlMrpack">
+            Unduh modpack (.mrpack)
+          </button>
+          <div class="row">
+            <button class="btn small" id="btnCopy" data-i18n="copy">
+              Salin daftar
+            </button>
+            <button class="btn small" id="btnSave" data-i18n="save">
+              Simpan proyek
+            </button>
+            <button class="btn small" id="btnOpen" data-i18n="open">
+              Buka proyek
+            </button>
+          </div>
+          <button class="btn small ghost" id="btnClear" data-i18n="clear">
+            Kosongkan pack
+          </button>
+          <p class="hint" data-i18n="mrpackHint">
+            File .mrpack bisa diimpor ke Modrinth App, Prism Launcher, dan
+            ATLauncher. Mod diunduh langsung dari Modrinth saat diimpor.
+          </p>
+          <input type="file" id="file" accept=".json,application/json" hidden />
+        </div>
+      </section>
+
+      <!-- Konverter .mrpack → .zip (100% di browser, cocok untuk GitHub Pages) -->
+      <section
+        class="panel convert"
+        id="convertPanel"
+        aria-label="Konverter MRPack ke ZIP"
+        data-i18n-aria="cvAria"
+      >
+        <h2 data-i18n="cvTitle">Konverter .mrpack → .zip</h2>
+        <p class="hint" data-i18n="cvDesc">
+          Unggah file .mrpack, klik konversi, browser akan mengunduh semua mod dari Modrinth lalu file ZIP langsung terunduh ke komputermu. Tanpa server.
+        </p>
+        <div class="cvdrop" id="cvDrop" role="button" tabindex="0" data-i18n-aria="cvDropAria" aria-label="Tarik file .mrpack ke sini atau klik untuk memilih">
+          <p><strong data-i18n="cvDrop">Tarik & letakkan file .mrpack di sini</strong></p>
+          <p class="hint">atau</p>
+          <button type="button" class="btn" id="cvBrowse" data-i18n="cvBrowse">Pilih file</button>
+          <p class="hint cvfile" id="cvFileName"></p>
+        </div>
+        <input type="file" id="cvFile" accept=".mrpack,application/zip" hidden />
+        <div class="cvopts">
+          <label class="check"><input type="checkbox" id="cvStruct" checked /><span data-i18n="cvOptStruct">Pertahankan struktur folder (mods/, resourcepacks/, shaderpacks/)</span></label>
+          <label class="check"><input type="checkbox" id="cvDl" checked /><span data-i18n="cvOptDl">Unduh file mod dari Modrinth (wajib agar ZIP bisa dipakai)</span></label>
+          <label class="check"><input type="checkbox" id="cvNorm" /><span data-i18n="cvOptNorm">Normalkan nama file (huruf kecil, spasi jadi strip)</span></label>
+        </div>
+        <button class="btn primary" id="cvConvert" data-i18n="cvConvert" disabled>
+          Konversi & unduh ZIP
+        </button>
+        <div class="cvprog" id="cvProg" hidden>
+          <div class="bar"><span id="cvBar"></span></div>
+          <p class="hint" id="cvStatus" role="status" aria-live="polite"></p>
+        </div>
+        <p class="hint" data-i18n="cvHint">
+          Hasil ZIP berisi mod (.jar), resource pack, shader, dan file overrides — siap dipakai di launcher apa pun.
+        </p>
+      </section>
+    </main>
+
+    <footer class="page" data-i18n="footer">
+      Data mod, texture pack, dan shader berasal dari Modrinth. Reonzy MP Maker
+      tidak berafiliasi dengan Mojang maupun Modrinth.
+    </footer>
+
+    <dialog id="verDialog"><div class="dlg" id="verBody"></div></dialog>
+
+    <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+      <div class="dlg settings">
+        <header>
+          <h2 id="settingsTitle" data-i18n="settingsTitle">Pengaturan</h2>
+          <button type="button" class="x" id="settingsClose" data-i18n-aria="close" aria-label="Tutup">×</button>
+        </header>
+        <div class="setbody">
+          <section class="setgroup" aria-labelledby="setLangTitle">
+            <h3 id="setLangTitle" data-i18n="setLangTitle">Bahasa</h3>
+            <div class="seg" role="group" aria-label="Bahasa / Language">
+              <button type="button" id="setLangId" aria-pressed="true">ID</button>
+              <button type="button" id="setLangEn" aria-pressed="false">EN</button>
+            </div>
+          </section>
+          <section class="setgroup" aria-labelledby="setFontTitle">
+            <div class="sethead">
+              <h3 id="setFontTitle" data-i18n="setFontTitle">Font pixel</h3>
+              <button
+                type="button"
+                id="fontToggle"
+                class="toggle"
+                role="switch"
+                aria-checked="true"
+                data-i18n-aria="setFontToggleAria"
+                aria-label="Nyalakan atau matikan font pixel"
+              >
+                <span class="t-ico t-off" aria-hidden="true">A</span>
+                <span class="t-ico t-on" aria-hidden="true">A</span>
+                <span class="knob" aria-hidden="true"></span>
+              </button>
+            </div>
+            <p class="hint" data-i18n="setFontHint">
+              Matikan untuk memakai font standar yang lebih mudah dibaca di semua tulisan.
+            </p>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="lang.js" defer></script>
+    <script src="app.js" defer></script>
+  </body>
 </html>
-
