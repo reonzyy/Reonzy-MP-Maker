@@ -22,7 +22,7 @@
     ></script>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body data-font="std">
     <header class="top">
       <button
         type="button"
@@ -198,11 +198,13 @@
         </label>
         <div class="tags" id="tags" aria-label="Filter tag"></div>
         <p class="hint" id="tabHint"></p>
-        <div class="resinfo" id="resInfo"></div>
-        <ul class="list" id="results"></ul>
-        <button class="btn more" id="more" hidden data-i18n="more">
-          Muat lebih banyak
-        </button>
+        <div class="browsebody">
+          <div class="resinfo" id="resInfo"></div>
+          <ul class="list" id="results"></ul>
+          <button class="btn more" id="more" hidden data-i18n="more">
+            Muat lebih banyak
+          </button>
+        </div>
       </section>
 
       <!-- Isi pack -->
@@ -321,7 +323,7 @@
                 id="fontToggle"
                 class="toggle"
                 role="switch"
-                aria-checked="true"
+                aria-checked="false"
                 data-i18n-aria="setFontToggleAria"
                 aria-label="Nyalakan atau matikan font pixel"
               >

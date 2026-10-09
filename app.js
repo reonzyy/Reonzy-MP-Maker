@@ -92,6 +92,18 @@ async function pool(arr, n, fn) {
   }));
 }
 
+/* Render pack dijadwalkan via rAF — banyak resolve paralel tidak lagi rebuild DOM berkali-kali */
+let packQueued = false;
+function queuePack() {
+  if (packQueued) return;
+  packQueued = true;
+  requestAnimationFrame(() => { packQueued = false; renderPack(); });
+}
+/* Cari id cepat O(1) — S.items.some() tiap baris bikin O(n²) saat pack besar */
+let idSet = new Set();
+function rebuildIds() { idSet = new Set(S.items.map(i => i.id)); }
+const hasId = id => idSet.has(id);
+
 function cmpVer(a, b) {
   const pa = a.split(/[.\-+]/), pb = b.split(/[.\-+]/);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -108,7 +120,7 @@ function cmpVer(a, b) {
 /* ---------- State ---------- */
 const S = {
   lang: (() => { try { return localStorage.getItem(LANGKEY) || 'en'; } catch (e) { return 'en'; } })(),
-  pixelFont: (() => { try { return localStorage.getItem(FONTKEY) !== 'off'; } catch (e) { return true; } })(),
+  pixelFont: (() => { try { return localStorage.getItem(FONTKEY) === 'on'; } catch (e) { return false; } })(),
   name: 'My Modpack', packVer: '1.0.0',
   mc: '', loader: 'fabric', loaderVer: '',
   pref: 'auto', autoDeps: true, showSnap: false,
@@ -241,10 +253,30 @@ async function depName(d) {
   depTitles.set(d.project_id, name);
   return name;
 }
+/* Nama dependensi diambil batch + render dijadwalkan — cegah N render per kartu */
+const depNameQueue = new Set();
+let depNameBusy = false;
+function queueDepNames(reqs) {
+  for (const d of reqs) {
+    if (d.project_id && !depTitles.has(d.project_id)) depNameQueue.add(d.project_id);
+  }
+  if (depNameBusy) return;
+  depNameBusy = true;
+  (async () => {
+    const g = S.gen;
+    await pool([...depNameQueue], 6, async (pid) => {
+      depNameQueue.delete(pid);
+      await depName({ project_id: pid });
+    });
+    depNameBusy = false;
+    if (depNameQueue.size) { queueDepNames([]); return; }
+    if (g === S.gen) queuePack();
+  })();
+}
 
-async function resolveItem(item, gen) {
+async function resolveItem(item, gen, quiet) {
   item.status = 'loading';
-  renderPack();
+  if (!quiet) queuePack();
   try {
     let list = sortVersions(await loadVersions(item, false));
     if (gen !== undefined && gen !== S.gen) return;
@@ -264,38 +296,52 @@ async function resolveItem(item, gen) {
     const chosen = keep || list.find(v => v.matches);
     item.vid = chosen ? chosen.id : null;
     item.status = chosen ? 'ready' : 'none';
-    if (chosen) await addDeps(item, chosen, gen);
+    if (chosen && !quiet) await addDeps(item, chosen, gen, quiet);
   } catch (e) {
     item.status = 'error';
   }
-  renderPack();
-  save();
+  if (!quiet) { queuePack(); save(); }
 }
 
-async function addDeps(item, v, gen) {
-  if (!S.autoDeps) return;
+/* Jejak dependensi anti-siklus: A butuh B, B butuh A tidak boleh resolve berputar */
+const depChain = new Set();
+async function addDeps(item, v, gen, quiet) {
+  if (!S.autoDeps) return [];
+  if (depChain.has(item.id)) return [];
+  depChain.add(item.id);
+  try {
+  const added = [];
   for (const d of v.deps) {
     if (d.dependency_type !== 'required' || !d.project_id) continue;
-    if (S.items.some(i => i.id === d.project_id)) continue;
+    if (hasId(d.project_id)) continue;
     try {
       const p = await getJSON(API + '/project/' + d.project_id);
-      if (gen !== undefined && gen !== S.gen) return;
-      if (!TYPES[p.project_type] || S.items.some(i => i.id === p.id)) continue;
+      if (gen !== undefined && gen !== S.gen) return added;
+      if (!TYPES[p.project_type] || hasId(p.id)) continue;
       const dep = makeItem(p);
       dep.auto = true;
       dep.requiredBy = item.title;
       S.items.push(dep);
-      renderPack();
-      resolveItem(dep, gen);
+      rebuildIds();
+      added.push(dep);
+      if (!quiet) {
+        queuePack();
+        resolveItem(dep, gen);
+      }
     } catch (e) { /* lewati dependensi yang gagal dimuat */ }
+  }
+  return added;
+  } finally {
+    depChain.delete(item.id);
   }
 }
 
 function addItem(hit) {
   const id = hit.project_id;
-  if (S.items.some(i => i.id === id)) return;
+  if (hasId(id)) return;
   const it = makeItem(hit);
   S.items.push(it);
+  rebuildIds();
   renderPack();
   renderResults();
   resolveItem(it, S.gen);
@@ -303,6 +349,8 @@ function addItem(hit) {
 }
 function removeItem(item) {
   S.items = S.items.filter(i => i !== item && (!item.id || i.id !== item.id));
+  rebuildIds();
+  SEL.delete(item.id);
   renderPack(); renderResults(); save();
 }
 
@@ -310,7 +358,43 @@ async function onConfigChange() {
   const g = ++S.gen;
   save();
   runSearch(true);
-  await pool(S.items.slice(), 6, i => resolveItem(i, g));
+  renderPack();
+  // Kumpulkan dulu semua item + dependensi barunya, resolve paralel,
+  // lalu render sekali di akhir — jauh lebih ringan daripada render per item.
+  const queue = S.items.slice();
+  const seen = new Set(queue.map(i => i.id));
+  await pool(queue, 6, async (item) => {
+    await resolveItem(item, g, true);
+    for (const dep of (await collectDeps(item, g)) || []) {
+      if (!seen.has(dep.id)) { seen.add(dep.id); queue.push(dep); }
+    }
+  });
+  for (const dep of queue) {
+    if (!hasId(dep.id)) { S.items.push(dep); rebuildIds(); }
+  }
+  await pool(queue, 6, i => resolveItem(i, g, true));
+  renderPack(); renderResults(); save();
+}
+
+/* Kumpulkan dependensi tanpa render/resolve — dipakai alur batch di atas */
+async function collectDeps(item, gen) {
+  const v = selVersion(item);
+  if (!S.autoDeps || !v || depChain.has(item.id)) return [];
+  const out = [];
+  for (const d of v.deps) {
+    if (d.dependency_type !== 'required' || !d.project_id) continue;
+    if (hasId(d.project_id) || out.some(i => i.id === d.project_id)) continue;
+    try {
+      const p = await getJSON(API + '/project/' + d.project_id);
+      if (gen !== undefined && gen !== S.gen) return out;
+      if (!TYPES[p.project_type]) continue;
+      const dep = makeItem(p);
+      dep.auto = true;
+      dep.requiredBy = item.title;
+      out.push(dep);
+    } catch (e) { /* lewati yang gagal */ }
+  }
+  return out;
 }
 
 /* ---------- Pencarian ---------- */
@@ -464,7 +548,7 @@ function renderResults() {
     total: S.total.toLocaleString(locale()),
     plural: typePlural(S.tab), scope });
   for (const h of S.results) {
-    const inPack = S.items.some(i => i.id === h.project_id);
+    const inPack = hasId(h.project_id);
     const tags = cardTags(h);
     ul.append(el('li', { class: 'card' + (inPack ? ' in' : '') },
       icon(h.icon_url, h.title),
@@ -501,14 +585,15 @@ function renderResults() {
 
 /* ---------- Render: isi pack ---------- */
 async function addDepById(pid, requiredBy) {
-  if (S.items.some(i => i.id === pid)) return;
+  if (hasId(pid)) return;
   try {
     const p = await getJSON(API + '/project/' + pid);
-    if (!TYPES[p.project_type] || S.items.some(i => i.id === p.id)) return;
+    if (!TYPES[p.project_type] || hasId(p.id)) return;
     const it = makeItem(p);
     it.auto = true;
     it.requiredBy = requiredBy || null;
     S.items.push(it);
+    rebuildIds();
     depTitles.set(it.id, it.title);
     renderPack(); renderResults();
     resolveItem(it, S.gen);
@@ -519,7 +604,7 @@ function missingDeps(item) {
   const v = selVersion(item);
   if (!v || !v.deps || item.type !== 'mod') return [];
   return v.deps.filter(d =>
-    d.project_id && d.dependency_type === 'required' && !S.items.some(i => i.id === d.project_id));
+    d.project_id && d.dependency_type === 'required' && !hasId(d.project_id));
 }
 function missingDepsCount() {
   return S.items.reduce((n, i) => n + missingDeps(i).length, 0);
@@ -550,6 +635,7 @@ function removeSelected() {
   if (!confirm(tr('confirmSelDel', { n }))) return;
   S.items = S.items.filter(i => !SEL.has(i.id));
   SEL.clear();
+  rebuildIds();
   renderPack(); renderPackSel(); renderResults(); save();
 }
 function packRow(item) {
@@ -585,12 +671,12 @@ function packRow(item) {
     const reqs = v.deps.filter(d => d.project_id && (d.dependency_type === 'required' || d.dependency_type === 'optional'));
     if (reqs.length) {
       const missingReq = reqs.filter(d =>
-        d.dependency_type === 'required' && !S.items.some(i => i.id === d.project_id));
+        d.dependency_type === 'required' && !hasId(d.project_id));
       box.append(el('div', { class: 'reqhead', text:
         tr('reqTitle') + (missingReq.length ? ' — ' + missingReq.length + ' ' + tr('reqMissing') : ' — ' + tr('reqOk')) }));
       for (const d of reqs) {
         const opt = d.dependency_type === 'optional';
-        const has = S.items.some(i => i.id === d.project_id);
+        const has = hasId(d.project_id);
         const name = depTitles.get(d.project_id) || d.project_id;
         const row = el('div', { class: 'req' + (opt ? ' opt' : '') },
           el('span', { text: name }),
@@ -605,13 +691,7 @@ function packRow(item) {
       }
       body.append(box);
       if (reqs.some(d => !depTitles.has(d.project_id))) {
-        (async () => {
-          const g = S.gen;
-          for (const d of reqs) {
-            if (!depTitles.has(d.project_id)) await depName(d);
-          }
-          if (g === S.gen) renderPack();
-        })();
+        queueDepNames(reqs);
       }
     }
   }
@@ -924,11 +1004,13 @@ async function applyProject(o) {
   const cur = S.mcList.find(v => v.version === S.mc);
   if (cur && cur.version_type !== 'release') S.showSnap = true;
   S.items = await buildItems(o.items);
+  rebuildIds();
   renderConfig(); renderPack();
   const g = ++S.gen;
   refreshLoader();
   runSearch(true);
-  await pool(S.items.slice(), 6, i => resolveItem(i, g));
+  await pool(S.items.slice(), 6, i => resolveItem(i, g, true));
+  renderPack(); renderResults(); save();
 }
 async function buildItems(saved) {
   const ids = saved.map(s => s.id).filter(Boolean);
@@ -1101,7 +1183,23 @@ function bind() {
   $('#pref').addEventListener('change', e => { S.pref = e.target.value; onConfigChange(); });
   $('#deps').addEventListener('change', e => {
     S.autoDeps = e.target.checked; save();
-    if (S.autoDeps) S.items.slice().forEach(i => { const v = selVersion(i); if (v) addDeps(i, v, S.gen); });
+    if (S.autoDeps) (async () => {
+      const g = ++S.gen;
+      renderPack();
+      const queue = S.items.slice();
+      const seen = new Set(queue.map(i => i.id));
+      await pool(queue, 6, async (item) => {
+        const v = selVersion(item);
+        if (v) for (const dep of (await addDeps(item, v, g, true)) || []) {
+          if (!seen.has(dep.id)) { seen.add(dep.id); queue.push(dep); }
+        }
+      });
+      for (const dep of queue) {
+        if (!hasId(dep.id)) { S.items.push(dep); rebuildIds(); }
+      }
+      await pool(queue, 6, i => resolveItem(i, g, true));
+      renderPack(); renderResults(); save();
+    })();
   });
   let tm;
   $('#q').addEventListener('input', e => {
@@ -1177,9 +1275,11 @@ async function boot() {
 
   if (saved && Array.isArray(saved.items) && saved.items.length) {
     S.items = await buildItems(saved.items);
+    rebuildIds();
     renderPack(); renderResults();
     const g = ++S.gen;
-    await pool(S.items.slice(), 6, i => resolveItem(i, g));
+    await pool(S.items.slice(), 6, i => resolveItem(i, g, true));
+    renderPack(); renderResults(); save();
   }
 }
 boot();

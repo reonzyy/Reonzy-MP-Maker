@@ -39,8 +39,12 @@ main.app{display:grid;grid-template-columns:300px minmax(0,1fr) 400px;gap:20px;p
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
 .side{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
 .packcol{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+.browse{position:sticky;top:16px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden}
+.browsebody{overflow:auto;flex:1;min-height:0;padding-bottom:2px;scrollbar-gutter:stable}
 @media (max-width:1180px){
   main.app{grid-template-columns:minmax(0,1fr)}
+  .browse{position:static;max-height:none;display:block;overflow:visible}
+  .browsebody{overflow:visible}
 }
 /* ---------- Navigasi mobile/tablet ---------- */
 .menubtn,.packbtn{display:none}
@@ -252,6 +256,10 @@ header.top{align-items:center}
 .seg button.on{background:var(--brand);color:var(--brand-ink)}
 #fontToggle .t-off{font-family:'Figtree',system-ui,sans-serif;font-weight:600}
 #fontToggle .t-on{font-family:'Minecraftia',monospace;font-weight:400}
+
+/* ---------- Mode font pixel: seluruh web memakai font pixel ---------- */
+body[data-font="pixel"]{font-family:'Minecraftia','Pixelify Sans',ui-monospace,monospace;letter-spacing:.2px;line-height:1.7}
+body[data-font="pixel"] h2{font-family:'Minecraftia','Pixelify Sans',ui-monospace,monospace}
 
 /* ---------- Mode font standar ---------- */
 body[data-font="std"] .logo{font-family:'Figtree',system-ui,-apple-system,'Segoe UI',sans-serif;font-weight:700;font-size:24px;letter-spacing:0}
