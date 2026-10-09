@@ -14,6 +14,30 @@ const LOADERS = {
   forge:    { label: 'Forge',    key: 'forge',         cats: ['forge'] },
   neoforge: { label: 'NeoForge', key: 'neoforge',      cats: ['neoforge'] }
 };
+/* ---------- Daftar tag populer per tipe ---------- */
+const TAGS = {
+  mod: ['adventure', 'magic', 'technology', 'optimization', 'utility', 'worldgen', 'mobs', 'decoration', 'equipment', 'food', 'storage', 'library'],
+  resourcepack: ['realistic', 'vanilla-like', 'themed', 'simplistic', 'tweaks', 'decoration', 'environment', 'gui', 'models', 'utility'],
+  shader: ['realistic', 'semi-realistic', 'vanilla-like', 'fantasy', 'potato', 'low', 'medium', 'high', 'shadows', 'reflections', 'bloom', 'pbr']
+};
+/* Loader & lingkungan bukan tag konten — disembunyikan dari daftar tag kartu */
+const HIDE_TAGS = new Set(['fabric', 'forge', 'neoforge', 'quilt', 'client', 'server', 'client_only', 'server_only', 'client_and_server', 'singleplayer', 'multiplayer']);
+function tagLabel(tag) {
+  return tag.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+function cardTags(h) {
+  const raw = h.display_categories && h.display_categories.length ? h.display_categories : (h.categories || []);
+  return raw.filter(c => !HIDE_TAGS.has(c)).slice(0, 5);
+}
+function toggleTag(tag) {
+  const on = S.tags.includes(tag);
+  S.tags = on ? S.tags.filter(x => x !== tag) : [...S.tags, tag];
+  save();
+  renderTags();
+  renderActiveFilters();
+  renderResults();
+  runSearch(true);
+}
 const RANK = { release: 0, beta: 1, alpha: 2 };
 const TLABEL = { release: 'Release', beta: 'Beta', alpha: 'Alpha' };
 const TCLASS = { release: '', beta: 'warn', alpha: 'bad' };
@@ -89,7 +113,7 @@ const S = {
   pref: 'auto', autoDeps: true, showSnap: false,
   mcList: [], loaderList: null,
   items: [],
-  tab: 'mod', query: '', results: [], total: 0, offset: 0, searching: false, searchErr: false,
+  tab: 'mod', query: '', tags: [], results: [], total: 0, offset: 0, searching: false, searchErr: false,
   gen: 0
 };
 let lvGen = 0, searchGen = 0;
@@ -98,7 +122,7 @@ function save() {
   try {
     localStorage.setItem(KEY, JSON.stringify({
       name: S.name, packVer: S.packVer, mc: S.mc, loader: S.loader, loaderVer: S.loaderVer,
-      pref: S.pref, autoDeps: S.autoDeps, showSnap: S.showSnap,
+      pref: S.pref, autoDeps: S.autoDeps, showSnap: S.showSnap, tab: S.tab, tags: S.tags,
       items: S.items.map(i => ({ id: i.id, vid: i.manual ? i.vid : null, manual: !!i.manual, auto: !!i.auto, requiredBy: i.requiredBy || null }))
     }));
   } catch (e) { /* penyimpanan tidak tersedia */ }
@@ -289,6 +313,46 @@ async function onConfigChange() {
 }
 
 /* ---------- Pencarian ---------- */
+function renderActiveFilters() {
+  let bar = $('#activeFilters');
+  if (!bar) {
+    bar = el('div', { class: 'activefilters', id: 'activeFilters' });
+    const tags = $('#tags');
+    tags.after(bar);
+  }
+  bar.replaceChildren();
+  if (!S.tags.length) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.append(el('span', { text: tr('activeTags') + ':' }));
+  for (const tag of S.tags) {
+    bar.append(el('button', {
+      type: 'button', class: 'tagchip on',
+      title: tr('tagOff', { tag: tagLabel(tag) }),
+      onclick: () => toggleTag(tag)
+    }, tagLabel(tag) + ' ', el('i', { text: '✕' })));
+  }
+  bar.append(el('button', { type: 'button', class: 'clearfilter', text: tr('clearTags'), onclick: clearTags }));
+}
+function clearTags() {
+  if (!S.tags.length) return;
+  S.tags = [];
+  save();
+  renderTags();
+  renderActiveFilters();
+  runSearch(true);
+}
+function renderTags() {
+  const box = $('#tags');
+  box.replaceChildren();
+  for (const tag of TAGS[S.tab] || []) {
+    const on = S.tags.includes(tag);
+    box.append(el('button', {
+      type: 'button', class: 'tagchip' + (on ? ' on' : ''), 'aria-pressed': String(on), text: tagLabel(tag),
+      title: on ? tr('tagOff', { tag: tagLabel(tag) }) : tr('tagOn', { tag: tagLabel(tag) }),
+      onclick: () => toggleTag(tag)
+    }));
+  }
+}
 async function runSearch(reset) {
   const my = ++searchGen;
   if (reset) { S.offset = 0; S.results = []; S.total = 0; }
@@ -298,6 +362,7 @@ async function runSearch(reset) {
   try {
     const f = [['project_type:' + S.tab], ['versions:' + S.mc]];
     if (S.tab === 'mod') f.push(LOADERS[S.loader].cats.map(c => 'categories:' + c));
+    if (S.tags.length) f.push(S.tags.map(tag => 'categories:' + tag));
     const q = new URLSearchParams({
       query: S.query, facets: JSON.stringify(f), limit: '20',
       offset: String(S.offset), index: S.query ? 'relevance' : 'downloads'
@@ -399,11 +464,19 @@ function renderResults() {
     plural: typePlural(S.tab), scope });
   for (const h of S.results) {
     const inPack = S.items.some(i => i.id === h.project_id);
+    const tags = cardTags(h);
     ul.append(el('li', { class: 'card' + (inPack ? ' in' : '') },
       icon(h.icon_url, h.title),
       el('div', {},
         el('h3', {}, h.title, el('small', { text: tr('by') + h.author })),
         el('p', { text: h.description }),
+        tags.length ? el('div', { class: 'cardtags' }, ...tags.map(c =>
+          el('button', {
+            type: 'button', class: 'tagchip sm' + (S.tags.includes(c) ? ' on' : ''),
+            text: tagLabel(c), title: tr('tagOn', { tag: tagLabel(c) }),
+            onclick: () => toggleTag(c)
+          })
+        )) : null,
         el('div', { class: 'meta' },
           el('span', { text: fmtNum(h.downloads) + ' ' + tr('downloads') }),
           h.latest_version ? el('span', { text: tr('latest') + h.latest_version }) : null,
@@ -743,11 +816,23 @@ async function buildItems(saved) {
   return out;
 }
 
-/* ---------- Bahasa ---------- */
+/* ---------- Drawer mobile/tablet ---------- */
+function syncScrim() {
+  $('#scrim').hidden = !(document.body.classList.contains('side-open') || document.body.classList.contains('pack-open'));
+}
 function setSide(open) {
   document.body.classList.toggle('side-open', open);
+  if (open) document.body.classList.remove('pack-open');
   $('#menuBtn').setAttribute('aria-expanded', String(open));
-  $('#scrim').hidden = !open;
+  $('#packBtn').setAttribute('aria-expanded', String(document.body.classList.contains('pack-open')));
+  syncScrim();
+}
+function setPack(open) {
+  document.body.classList.toggle('pack-open', open);
+  if (open) document.body.classList.remove('side-open');
+  $('#packBtn').setAttribute('aria-expanded', String(open));
+  $('#menuBtn').setAttribute('aria-expanded', String(document.body.classList.contains('side-open')));
+  syncScrim();
 }
 function applyStaticLang() {
   document.documentElement.lang = S.lang;
@@ -779,6 +864,8 @@ function setLang(lang) {
   renderLoaderHint();
   renderLoader();
   document.querySelectorAll('#tabs button').forEach(b => { b.textContent = typeLabel(b.dataset.tab); });
+  renderTags();
+  renderActiveFilters();
   renderResults();
   renderPack();
   save();
@@ -788,13 +875,11 @@ function setLang(lang) {
 function bind() {
   $('#menuBtn').addEventListener('click', () => setSide(!document.body.classList.contains('side-open')));
   $('#sideClose').addEventListener('click', () => setSide(false));
-  $('#scrim').addEventListener('click', () => setSide(false));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') setSide(false); });
-  $('#packBtn').addEventListener('click', () => {
-    setSide(false);
-    $('#packPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
-  window.matchMedia('(min-width: 1181px)').addEventListener('change', e => { if (e.matches) setSide(false); });
+  $('#packClose').addEventListener('click', () => setPack(false));
+  $('#scrim').addEventListener('click', () => { setSide(false); setPack(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { setSide(false); setPack(false); } });
+  $('#packBtn').addEventListener('click', () => setPack(!document.body.classList.contains('pack-open')));
+  window.matchMedia('(min-width: 1181px)').addEventListener('change', e => { if (e.matches) { setSide(false); setPack(false); } });
   $('#langId').addEventListener('click', () => setLang('id'));
   $('#langEn').addEventListener('click', () => setLang('en'));
   // loader
@@ -812,12 +897,19 @@ function bind() {
   });
   // tab
   const tabs = $('#tabs');
+  tabs.replaceChildren();
   for (const [k] of Object.entries(TYPES)) {
     tabs.append(el('button', {
-      role: 'tab', 'aria-selected': String(k === S.tab), 'data-tab': k, text: typeLabel(k),
+      type: 'button', role: 'tab', 'aria-selected': String(k === S.tab), 'data-tab': k, text: typeLabel(k),
       onclick: () => {
+        if (S.tab === k) return;
         S.tab = k;
+        S.tags = [];
+        save();
         tabs.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === k)));
+        renderTags();
+        renderActiveFilters();
+        renderResults();
         runSearch(true);
       }
     }));
@@ -875,13 +967,17 @@ async function boot() {
       name: saved.name || S.name, packVer: saved.packVer || S.packVer,
       mc: saved.mc || '', loader: LOADERS[saved.loader] ? saved.loader : 'fabric',
       loaderVer: saved.loaderVer || '', pref: saved.pref === 'newest' ? 'newest' : 'auto',
-      autoDeps: saved.autoDeps !== false, showSnap: !!saved.showSnap
+      autoDeps: saved.autoDeps !== false, showSnap: !!saved.showSnap,
+      tab: TYPES[saved.tab] ? saved.tab : 'mod',
+      tags: Array.isArray(saved.tags) ? saved.tags.filter(x => typeof x === 'string') : []
     });
   }
   if (!saved || !saved.name) S.name = tr('defaultName');
   bind();
   applyStaticLang();
   renderPack();
+  renderTags();
+  renderActiveFilters();
   renderResults();
   try {
     const d = await getJSON(API + '/tag/game_version');

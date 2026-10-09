@@ -20,7 +20,7 @@
     <h1 class="logo"><i aria-hidden="true"></i>Reonzy MP Maker</h1>
     <p class="tag" data-i18n="tag">Pilih versi, pilih mod, unduh modpack.</p>
   </div>
-  <button type="button" id="packBtn" class="packbtn" aria-controls="packPanel"><span data-i18n="packBtn">Pack</span><b id="packCount">0</b></button>
+  <button type="button" id="packBtn" class="packbtn" data-i18n-aria="packAria" aria-label="Isi modpack" aria-expanded="false" aria-controls="packPanel"><span data-i18n="packBtn">Pack</span><b id="packCount">0</b></button>
   <div class="lang" role="group" aria-label="Bahasa / Language">
     <button type="button" id="langId" aria-pressed="true">ID</button>
     <button type="button" id="langEn" aria-pressed="false">EN</button>
@@ -82,6 +82,7 @@
     <label class="field" style="margin-bottom:0"><span class="sr" style="position:absolute;left:-9999px" data-i18n="searchSr">Cari</span>
       <input type="search" id="q" data-i18n-ph="searchPh" placeholder="Cari nama, misalnya sodium atau complementary" autocomplete="off">
     </label>
+    <div class="tags" id="tags" aria-label="Filter tag"></div>
     <p class="hint" id="tabHint"></p>
     <div class="resinfo" id="resInfo"></div>
     <ul class="list" id="results"></ul>
@@ -90,7 +91,10 @@
 
   <!-- Isi pack -->
   <section class="panel packcol" id="packPanel" aria-label="Isi modpack" data-i18n-aria="packAria">
-    <h2 data-i18n="packTitle">Isi modpack</h2>
+    <div class="packhead">
+      <h2 data-i18n="packTitle">Isi modpack</h2>
+      <button type="button" id="packClose" class="x" data-i18n-aria="close" aria-label="Tutup">×</button>
+    </div>
     <p class="sum" id="sum"></p>
     <div id="pack"></div>
     <div class="actions">
