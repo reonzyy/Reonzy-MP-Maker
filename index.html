@@ -89,6 +89,8 @@
           </button>
         </div>
 
+        <div class="tabs" role="tablist" id="tabs"></div>
+
         <div class="row2 field">
           <label
             ><span
@@ -180,7 +182,6 @@
         data-i18n-aria="browseAria"
       >
         <h2 data-i18n="browseTitle">Cari konten</h2>
-        <div class="tabs" role="tablist" id="tabs"></div>
         <label class="field" style="margin-bottom: 0"
           ><span
             class="sr"
@@ -203,6 +204,41 @@
         <button class="btn more" id="more" hidden data-i18n="more">
           Muat lebih banyak
         </button>
+
+        <!-- Konverter .mrpack → .zip (100% di browser, cocok untuk GitHub Pages) -->
+        <div
+          class="convert"
+          id="convertPanel"
+          aria-label="Konverter MRPack ke ZIP"
+          data-i18n-aria="cvAria"
+        >
+          <h2 data-i18n="cvTitle">Konverter .mrpack → .zip</h2>
+          <p class="hint" data-i18n="cvDesc">
+            Unggah file .mrpack, klik konversi, browser akan mengunduh semua mod dari Modrinth lalu file ZIP langsung terunduh ke komputermu. Tanpa server.
+          </p>
+          <div class="cvdrop" id="cvDrop" role="button" tabindex="0" data-i18n-aria="cvDropAria" aria-label="Tarik file .mrpack ke sini atau klik untuk memilih">
+            <p><strong data-i18n="cvDrop">Tarik & letakkan file .mrpack di sini</strong></p>
+            <p class="hint">atau</p>
+            <button type="button" class="btn" id="cvBrowse" data-i18n="cvBrowse">Pilih file</button>
+            <p class="hint cvfile" id="cvFileName"></p>
+          </div>
+          <input type="file" id="cvFile" accept=".mrpack,application/zip" hidden />
+          <div class="cvopts">
+            <label class="check"><input type="checkbox" id="cvStruct" checked /><span data-i18n="cvOptStruct">Pertahankan struktur folder (mods/, resourcepacks/, shaderpacks/)</span></label>
+            <label class="check"><input type="checkbox" id="cvDl" checked /><span data-i18n="cvOptDl">Unduh file mod dari Modrinth (wajib agar ZIP bisa dipakai)</span></label>
+            <label class="check"><input type="checkbox" id="cvNorm" /><span data-i18n="cvOptNorm">Normalkan nama file (huruf kecil, spasi jadi strip)</span></label>
+          </div>
+          <button class="btn primary" id="cvConvert" data-i18n="cvConvert" disabled>
+            Konversi & unduh ZIP
+          </button>
+          <div class="cvprog" id="cvProg" hidden>
+            <div class="bar"><span id="cvBar"></span></div>
+            <p class="hint" id="cvStatus" role="status" aria-live="polite"></p>
+          </div>
+          <p class="hint" data-i18n="cvHint">
+            Hasil ZIP berisi mod (.jar), resource pack, shader, dan file overrides — siap dipakai di launcher apa pun.
+          </p>
+        </div>
       </section>
 
       <!-- Isi pack -->
@@ -254,41 +290,6 @@
           </p>
           <input type="file" id="file" accept=".json,application/json" hidden />
         </div>
-      </section>
-
-      <!-- Konverter .mrpack → .zip (100% di browser, cocok untuk GitHub Pages) -->
-      <section
-        class="panel convert"
-        id="convertPanel"
-        aria-label="Konverter MRPack ke ZIP"
-        data-i18n-aria="cvAria"
-      >
-        <h2 data-i18n="cvTitle">Konverter .mrpack → .zip</h2>
-        <p class="hint" data-i18n="cvDesc">
-          Unggah file .mrpack, klik konversi, browser akan mengunduh semua mod dari Modrinth lalu file ZIP langsung terunduh ke komputermu. Tanpa server.
-        </p>
-        <div class="cvdrop" id="cvDrop" role="button" tabindex="0" data-i18n-aria="cvDropAria" aria-label="Tarik file .mrpack ke sini atau klik untuk memilih">
-          <p><strong data-i18n="cvDrop">Tarik & letakkan file .mrpack di sini</strong></p>
-          <p class="hint">atau</p>
-          <button type="button" class="btn" id="cvBrowse" data-i18n="cvBrowse">Pilih file</button>
-          <p class="hint cvfile" id="cvFileName"></p>
-        </div>
-        <input type="file" id="cvFile" accept=".mrpack,application/zip" hidden />
-        <div class="cvopts">
-          <label class="check"><input type="checkbox" id="cvStruct" checked /><span data-i18n="cvOptStruct">Pertahankan struktur folder (mods/, resourcepacks/, shaderpacks/)</span></label>
-          <label class="check"><input type="checkbox" id="cvDl" checked /><span data-i18n="cvOptDl">Unduh file mod dari Modrinth (wajib agar ZIP bisa dipakai)</span></label>
-          <label class="check"><input type="checkbox" id="cvNorm" /><span data-i18n="cvOptNorm">Normalkan nama file (huruf kecil, spasi jadi strip)</span></label>
-        </div>
-        <button class="btn primary" id="cvConvert" data-i18n="cvConvert" disabled>
-          Konversi & unduh ZIP
-        </button>
-        <div class="cvprog" id="cvProg" hidden>
-          <div class="bar"><span id="cvBar"></span></div>
-          <p class="hint" id="cvStatus" role="status" aria-live="polite"></p>
-        </div>
-        <p class="hint" data-i18n="cvHint">
-          Hasil ZIP berisi mod (.jar), resource pack, shader, dan file overrides — siap dipakai di launcher apa pun.
-        </p>
       </section>
     </main>
 

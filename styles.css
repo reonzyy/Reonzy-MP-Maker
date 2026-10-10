@@ -277,7 +277,7 @@ body[data-font="std"] #fontToggle .t-on{font-family:'Figtree',system-ui,sans-ser
 .req.opt{opacity:.8}
 
 /* ---------- Konverter .mrpack → .zip ---------- */
-.convert{grid-column:1/-1}
+.convert{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
 .cvdrop{margin:10px 0;border:2px dashed var(--line);border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;transition:border-color .18s,background .18s}
 .cvdrop p{margin:6px 0}
 .cvdrop:hover,.cvdrop:focus-visible,.cvdrop.over{border-color:var(--brand);background:var(--panel2)}
